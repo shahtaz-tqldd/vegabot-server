@@ -40,6 +40,16 @@ class ChatbotQuerySet(models.QuerySet):
             models.Q(created_by=user) | models.Q(created_by__is_staff=True),
         )
 
+    def with_knowledge_counts(self):
+        """Annotate per-chatbot knowledge counts for list endpoints."""
+        return self.annotate(
+            product_count=models.Count("products", distinct=True),
+            service_count=models.Count("services", distinct=True),
+            knowledge_source_count=models.Count(
+                "knowledge_bases", distinct=True,
+            ),
+        )
+
 
 class Chatbot(BaseModel):
     chatbot_name = models.CharField(max_length=120)

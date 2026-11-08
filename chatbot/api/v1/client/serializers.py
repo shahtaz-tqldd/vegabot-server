@@ -170,6 +170,7 @@ class ChatbotListSerializer(ChatbotBaseSerializer):
 
     created_by = ChatbotOwnerSerializer(read_only=True)
     is_admin_created = serializers.SerializerMethodField()
+    trained_knowledge = serializers.SerializerMethodField()
 
     class Meta(ChatbotBaseSerializer.Meta):
         fields = (
@@ -182,6 +183,7 @@ class ChatbotListSerializer(ChatbotBaseSerializer):
             "logo",
             "status",
             "is_admin_created",
+            "trained_knowledge",
             "created_by",
             "created_at",
         )
@@ -189,6 +191,21 @@ class ChatbotListSerializer(ChatbotBaseSerializer):
 
     def get_is_admin_created(self, obj):
         return bool(obj.created_by and obj.created_by.is_staff)
+
+    def get_trained_knowledge(self, obj):
+        def _count(annotation, relation):
+            value = getattr(obj, annotation, None)
+            if value is None:
+                value = getattr(obj, relation).count()
+            return value
+
+        return {
+            "product_count": _count("product_count", "products"),
+            "service_count": _count("service_count", "services"),
+            "knowledge_source_count": _count(
+                "knowledge_source_count", "knowledge_bases",
+            ),
+        }
 
 
 class ChatbotCreateSerializer(ChatbotBaseSerializer):

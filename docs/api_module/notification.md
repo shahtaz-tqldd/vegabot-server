@@ -125,21 +125,47 @@ This accepts the same filters as the list endpoint.
 ws://<host>/ws/notifications/?token=<access_token>
 ```
 
+JWT via `?token=` query param or `Authorization: Bearer <token>` header. Close code `4401` when unauthenticated.
+
 An authenticated connection subscribes to:
 
 - `notifications.global`
 - `notifications.user.<user_id>`
-- `notifications.workspace.<workspace_id>` for active memberships
-- `notifications.chatbot.<chatbot_id>` for active assignments
+- `notifications.chatbot.<chatbot_id>` for every chatbot the user owns
 
-Events use the serialized REST notification shape with an additional top-level
-`event` field that mirrors `notification_type`. Chat-session consumers will use
-`notifications.chat_session.<chat_session_id>`.
+On connect the server sends:
 
-Successful knowledge training emits a chatbot notification with
-`event: training_complete` and `notification_type: training_complete`. Its
-metadata includes `knowledge_base_id`, `training_log_id`, `source_type`,
-`training_stage`, and `force_retrain`.
+```json
+{ "type": "connection.ready" }
+```
+
+Client → server:
+
+```json
+{ "type": "ping" }
+```
+
+Server → client:
+
+```json
+{ "type": "pong" }
+{ "type": "error", "message": "..." }
+{
+  "type": "notification.created",
+  "data": {
+    "id": "uuid",
+    "chatbot_id": "uuid",
+    "notification_type": "training_complete",
+    "title": "...",
+    "message": "...",
+    "metadata": {},
+    "created_at": "...",
+    "event": "training_complete"
+  }
+}
+```
+
+`data` uses the serialized REST notification shape with an additional `event` field that mirrors `notification_type`. Successful knowledge training emits `notification_type: training_complete` with metadata including `knowledge_base_id`, `training_log_id`, `source_type`, `training_stage`, and `force_retrain`.
 
 ## Creating notifications in application code
 

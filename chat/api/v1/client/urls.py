@@ -17,8 +17,18 @@ chat_analytics = [
     path("stats/", views.SessionStatsAPIView.as_view(), name="session-stats"),
 ]
 
+chat_escalations = [
+    path("list/", views.ChatEscalationListView.as_view(), name="chat-escalation-list"),
+    path(
+        "resolve/",
+        views.ChatEscalationResolveView.as_view(),
+        name="chat-escalation-resolve",
+    ),
+]
+
 urlpatterns = [
     path("sessions/", include(chat_sessions)),
     path("messages/", include(chat_messages)),
     path("analytics/", include(chat_analytics)),
+    path("escalations/", include(chat_escalations)),
 ]

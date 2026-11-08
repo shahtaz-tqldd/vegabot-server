@@ -26,6 +26,7 @@ class ChatbotAdminListAPIView(PaginatedListMixin, GenericAPIView):
     def get_queryset(self):
         return (
             Chatbot.objects.select_related("created_by")
+            .with_knowledge_counts()
             .filter(is_deleted=False)
             .order_by("-created_at")
         )

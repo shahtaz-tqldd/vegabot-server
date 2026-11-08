@@ -198,9 +198,12 @@ class ChatAgentClient:
             return None
 
         self._check_validation(user_message.content)
+        turn_text = await sync_to_async(self._turn_text, thread_sensitive=True)(
+            user_message,
+        )
         response, collector = await self._run_turn(
-            self._turn_text(user_message),
-            user_message.created_by_id,
+            turn_text,
+            self.session.created_by_id,
             on_delta=on_delta,
         )
         public_reply = build_public_reply(response, collector.results)

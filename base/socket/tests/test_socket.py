@@ -21,6 +21,7 @@ from rest_framework_simplejwt.tokens import AccessToken
 
 from base.socket.consumers.chat import ChatSessionConsumer  # noqa: F401
 from base.socket.consumers.live import LiveChatConsumer  # noqa: F401
+from base.socket.consumers.notification import NotificationConsumer  # noqa: F401
 from base.socket.events import LIVE_NOT_AVAILABLE, NOTIFICATION_CREATED
 from base.socket.middleware import JWTAuthMiddlewareStack
 from base.socket.routing import websocket_urlpatterns
@@ -189,6 +190,64 @@ class ChatSessionConsumerTests(SocketTestMixin, TransactionTestCase):
                 "training_complete",
             )
             await communicator.disconnect()
+
+        async_to_sync(scenario)()
+
+
+@IN_MEMORY_LAYER
+class NotificationConsumerTests(SocketTestMixin, TransactionTestCase):
+    def _connect(self, token=None):
+        url = f"/ws/notifications/?token={token or token_for(self.user)}"
+        return WebsocketCommunicator(socket_app(), url)
+
+    def test_connect_delivers_owned_chatbot_notifications(self):
+        async def scenario():
+            communicator = self._connect()
+            connected, _ = await communicator.connect()
+            self.assertTrue(connected)
+            ready = await communicator.receive_json_from()
+            self.assertEqual(ready["type"], "connection.ready")
+
+            broadcast(
+                [chatbot_dashboard_group(self.chatbot.pk)],
+                {
+                    "type": "notification.created",
+                    "group": chatbot_dashboard_group(self.chatbot.pk),
+                    "notification": {
+                        "notification_type": "training_complete",
+                        "title": "Knowledge training complete",
+                        "message": "Trained 3 product items.",
+                    },
+                },
+            )
+            event = await communicator.receive_json_from()
+            self.assertEqual(event["type"], NOTIFICATION_CREATED)
+            self.assertEqual(
+                event["data"]["notification_type"],
+                "training_complete",
+            )
+            await communicator.disconnect()
+
+        async_to_sync(scenario)()
+
+    def test_ping_pong(self):
+        async def scenario():
+            communicator = self._connect()
+            connected, _ = await communicator.connect()
+            await communicator.receive_json_from()  # connection.ready
+
+            await communicator.send_json_to({"type": "ping"})
+            event = await communicator.receive_json_from()
+            self.assertEqual(event["type"], "pong")
+            await communicator.disconnect()
+
+        async_to_sync(scenario)()
+
+    def test_unauthenticated_connection_rejected(self):
+        async def scenario():
+            communicator = self._connect(token="not-a-token")
+            connected, _ = await communicator.connect()
+            self.assertFalse(connected)
 
         async_to_sync(scenario)()
 
