@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="en">
+  <body style="margin:0;background:#f4f7f5;font-family:Arial,sans-serif;color:#18332b;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="padding:32px 16px;">
+      <tr>
+        <td align="center">
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;background:#ffffff;border-radius:16px;padding:36px;">
+            <tr><td style="font-size:24px;font-weight:700;padding-bottom:20px;">dison Chatbot</td></tr>
+            <tr><td style="font-size:18px;font-weight:600;padding-bottom:12px;">Verify your email</td></tr>
+            <tr><td style="font-size:15px;line-height:24px;padding-bottom:22px;">Hi {{ recipient_name }}, use this code to finish creating your account:</td></tr>
+            <tr><td align="center" style="font-size:34px;font-weight:700;letter-spacing:10px;background:#eef8f3;border-radius:12px;padding:18px;">{{ otp }}</td></tr>
+            <tr><td style="font-size:14px;line-height:22px;color:#60736d;padding-top:22px;">This code expires in {{ expires_in_minutes }} minutes. If you did not create a dison Chatbot account, you can ignore this email.</td></tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>

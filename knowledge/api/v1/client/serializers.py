@@ -1,0 +1,230 @@
+from rest_framework import serializers
+
+from knowledge.models import KnowledgeBase, KnowledgeTrainingLog, Product, Service
+from knowledge.utils.choices import KnowledgeSpaceTypes
+from knowledge.services.catalog import VALID_CURRENCIES
+
+DOCUMENT_STATUS_FIELDS = ("status", "error_message", "processed_at")
+
+
+class ChatbotQuerySerializer(serializers.Serializer):
+    chatbot = serializers.SlugField()
+
+
+class ChatbotScopeMixin(serializers.Serializer):
+    """Validate a chatbot slug the user may manage knowledge for."""
+
+    chatbot = serializers.SlugField()
+
+    def validate_chatbot(self, value):
+        from chatbot.models import Chatbot
+
+        request = self.context["request"]
+        queryset = Chatbot.objects.filter(is_deleted=False)
+        if not request.user.is_superuser:
+            queryset = queryset.filter(created_by=request.user)
+        chatbot = queryset.filter(slug=value).first()
+        if chatbot is None:
+            raise serializers.ValidationError(
+                "Chatbot not found or not manageable by you."
+            )
+        return chatbot
+
+
+class KnowledgeDocumentUploadSerializer(ChatbotScopeMixin):
+    title = serializers.CharField(max_length=500, required=False, allow_blank=True, default="")
+    file = serializers.FileField()
+
+    def validate_file(self, file_obj):
+        from knowledge.services.validation import validate_knowledge_file
+
+        return validate_knowledge_file(file_obj)
+
+
+class KnowledgeDocumentWebsiteSerializer(ChatbotScopeMixin):
+    title = serializers.CharField(max_length=500, required=False, allow_blank=True, default="")
+    url = serializers.URLField()
+
+    def validate_url(self, value):
+        from knowledge.services.validation import validate_public_url
+
+        return validate_public_url(value)
+
+
+class KnowledgeDocumentSerializer(serializers.ModelSerializer):
+    name = serializers.CharField(read_only=True)
+
+    class Meta:
+        model = KnowledgeBase
+        fields = (
+            "id",
+            "name",
+            "title",
+            "source_type",
+            "status",
+            "is_enabled",
+            "url",
+            "original_filename",
+            "file_type",
+            "file_size",
+            "last_crawled_at",
+            "error_message",
+            "processed_at",
+            "created_at",
+        )
+        read_only_fields = fields
+
+
+class KnowledgeDocumentUpdateSerializer(serializers.Serializer):
+    title = serializers.CharField(max_length=500, required=False, allow_blank=True)
+    is_enabled = serializers.BooleanField(required=False)
+
+
+class KnowledgeDocumentQuerySerializer(serializers.Serializer):
+    chatbot = serializers.SlugField()
+    document = serializers.UUIDField()
+
+
+class ProductSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Product
+        fields = (
+            "id",
+            "name",
+            "sku",
+            "category",
+            "description",
+            "price",
+            "currency",
+            "product_url",
+            "status",
+            "is_enabled",
+            "error_message",
+            "created_at",
+            "updated_at",
+        )
+        read_only_fields = ("id", "status", "error_message", "created_at", "updated_at")
+
+
+class ProductCreateSerializer(ChatbotScopeMixin, ProductSerializer):
+    class Meta(ProductSerializer.Meta):
+        fields = ("chatbot", *ProductSerializer.Meta.fields)
+        read_only_fields = ProductSerializer.Meta.read_only_fields
+
+    def validate(self, attrs):
+        chatbot = attrs["chatbot"]
+        sku = (attrs.get("sku") or "").strip()
+        if sku:
+            conflict = Product.objects.filter(chatbot=chatbot, sku__iexact=sku)
+            if conflict.exists():
+                raise serializers.ValidationError(
+                    {"sku": "A product with this SKU already exists."}
+                )
+        return attrs
+
+
+class ProductUpdateSerializer(ProductSerializer):
+    def validate(self, attrs):
+        sku = attrs.get("sku")
+        if sku:
+            conflict = Product.objects.filter(
+                chatbot=self.instance.chatbot,
+                sku__iexact=sku,
+            ).exclude(pk=self.instance.pk)
+            if conflict.exists():
+                raise serializers.ValidationError(
+                    {"sku": "A product with this SKU already exists."}
+                )
+        return attrs
+
+
+class CatalogQuerySerializer(serializers.Serializer):
+    chatbot = serializers.SlugField()
+    product = serializers.UUIDField(required=False)
+    service = serializers.UUIDField(required=False)
+
+
+class ProductUploadSerializer(ChatbotScopeMixin):
+    file = serializers.FileField()
+
+    def validate_file(self, file_obj):
+        from knowledge.services.catalog import parse_product_upload
+
+        if not file_obj.name or not file_obj.name.lower().endswith((".csv", ".xlsx")):
+            raise serializers.ValidationError(
+                "Upload the filled template as CSV or XLSX."
+            )
+        return file_obj
+
+
+class ServiceSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Service
+        fields = (
+            "id",
+            "name",
+            "service_type",
+            "description",
+            "cost",
+            "currency",
+            "status",
+            "is_enabled",
+            "error_message",
+            "created_at",
+            "updated_at",
+        )
+        read_only_fields = ("id", "status", "error_message", "created_at", "updated_at")
+
+
+class ServiceCreateSerializer(ChatbotScopeMixin, ServiceSerializer):
+    class Meta(ServiceSerializer.Meta):
+        fields = ("chatbot", *ServiceSerializer.Meta.fields)
+        read_only_fields = ServiceSerializer.Meta.read_only_fields
+
+
+class ServiceBulkCreateSerializer(ChatbotScopeMixin):
+    services = serializers.ListField(
+        child=ServiceSerializer(),
+        allow_empty=False,
+        max_length=200,
+    )
+
+
+class ServiceUpdateSerializer(ServiceSerializer):
+    pass
+
+
+class KnowledgeTrainSerializer(serializers.Serializer):
+    force = serializers.BooleanField(required=False, default=False)
+
+
+class TrainingLogSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = KnowledgeTrainingLog
+        fields = (
+            "id",
+            "space",
+            "stage",
+            "progress",
+            "total_chunks",
+            "processed_chunks",
+            "force_retrain",
+            "content_changed",
+            "message",
+            "error_message",
+            "started_at",
+            "completed_at",
+            "created_at",
+        )
+        read_only_fields = fields
+
+
+class KnowledgeSearchSerializer(ChatbotScopeMixin):
+    query = serializers.CharField(max_length=1000)
+    type = serializers.ChoiceField(
+        choices=KnowledgeSpaceTypes.choices,
+        required=False,
+        allow_null=True,
+        default=None,
+    )
+    limit = serializers.IntegerField(required=False, default=8, min_value=1, max_value=50)

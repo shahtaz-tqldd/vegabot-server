@@ -1,0 +1,4454 @@
+{
+  "info": {
+    "_postman_id": "b6f0c4e2-argb-4c81-9f2a-3d5e7a9b1c04",
+    "name": "Dison Backend API",
+    "description": "# Dison Backend API\n\nMulti-tenant, AI-assisted customer support Chatbot.\n\n## Getting started\n\n1. Set the `base_url` collection variable (default `http://localhost:8013`, the WSGI dev port).\n2. Run **Accounts → Login** (or **Register** then **Verify OTP**). Access/refresh tokens are saved automatically to collection variables.\n3. Authenticated requests send `Authorization: Bearer {{access_token}}` automatically via collection-level auth. Public endpoints disable it.\n\n## Conventions\n\n- **Response envelope** — every endpoint returns:\n  ```json\n  {\"status\": 200, \"success\": true, \"message\": \"...\", \"data\": {}, \"meta\": {}, \"errors\": {}}\n  ```\n  `meta` and `errors` are present when applicable. Validation failures return HTTP 400 with an `errors` object.\n- **Pagination** — list endpoints accept `page` and `page_size` (default 20, max 100) and return `meta: {count, page, page_size, num_pages, next, previous}`.\n- **Object scoping via query params** — dashboard endpoints resolve the target object from query parameters (`workspace`, `chatbot`, `chatbot_slug`, `session_id`, `knowledge_base_id`, `lead_id`, `appointment_id`, `transfer_id`), not from the URL path. Note: chat endpoints use `chatbot_slug`, while knowledge/subscription endpoints use `chatbot`.\n- **Auth** — SimpleJWT Bearer tokens. Access tokens last 24h, refresh tokens 7d (rotated + blacklisted on refresh). Login endpoints return `access_token`/`refresh_token`; the refresh endpoint returns `access`/`refresh`.\n- **URL layout** — REST: `/api/v1/...`, platform admin: `/api/v1/admin/...`, Django admin: `/admin/`, WebSockets (separate ASGI process, port 8014): `/ws/...`.\n- All paths require a trailing slash.\n\n## Permissions\n\nWorkspace roles: `ADMIN`, `MEMBER`. Chatbot memberships carry granular permissions (e.g. `setup_configuration`, `chat_session_management`, `lead_management`, `appointment_management`) or `all_permissions`. Chatbot/workspace admins bypass permission checks. Platform admin endpoints require `is_staff`; superadmin endpoints require `is_superuser`.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "_exporter_id": "dison-docs"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{access_token}}",
+        "type": "string"
+      }
+    ]
+  },
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": []
+      }
+    },
+    {
+      "listen": "test",
+      "script": {
+        "type": "text/javascript",
+        "exec": []
+      }
+    }
+  ],
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:8007",
+      "type": "string"
+    },
+    {
+      "key": "access_token",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "refresh_token",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "admin_access_token",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "admin_refresh_token",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "workspace",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "chatbot_slug",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "public_key",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "session_id",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "conversation_token",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "visitor_id",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "member_email",
+      "value": "teammate@example.com",
+      "type": "string"
+    },
+    {
+      "key": "notification_id",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "plan_id",
+      "value": "",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "Accounts",
+      "description": "Identity and account lifecycle: registration, email verification (OTP), JWT login, Google/Firebase login, password reset, profile and settings. Base path: `/api/v1/accounts/`.",
+      "item": [
+        {
+          "name": "Register",
+          "request": {
+            "method": "POST",
+            "description": "Create a new user account. **Public.**\n\n**Body** (JSON): `email` (email, required), `password` (min 8, required), `confirm_password` (must match, required), `name` (≤50, optional), `phone` (optional, `+?digits 6-15`).\n\n**201** → `data`: user object (`id, email, name, provider, status, is_email_verified, is_active, phone, avatar_url, city, country, timezone, created_at, updated_at, last_login`). An OTP is emailed for verification.",
+            "url": {
+              "raw": "{{base_url}}/api/v1/accounts/register/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "accounts",
+                "register",
+                ""
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"jane@example.com\",\n  \"name\": \"Jane Doe\",\n  \"phone\": \"+8801700000000\",\n  \"password\": \"Str0ngPass!x\",\n  \"confirm_password\": \"Str0ngPass!x\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Verify OTP",
+          "request": {
+            "method": "POST",
+            "description": "Verify the 4-digit OTP sent by email and receive JWT tokens. **Public.**\n\n**Body**: `email` (required), `otp` (4 digits, required).",
+            "url": {
+              "raw": "{{base_url}}/api/v1/accounts/verify-otp/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "accounts",
+                "verify-otp",
+                ""
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"jane@example.com\",\n  \"otp\": \"1234\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "noauth"
+            },
+            "event": {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "const d = json.data || {};",
+                  "if (d.access_token) pm.collectionVariables.set('access_token', d.access_token);",
+                  "if (d.refresh_token) pm.collectionVariables.set('refresh_token', d.refresh_token);"
+                ]
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Login",
+          "request": {
+            "method": "POST",
+            "description": "Email/password login. **Public.** Saves tokens to collection variables automatically.\n\n**Body**: `email` (required), `password` (required).\n\n**200** → `data: {access_token, refresh_token}`. Rejects disabled/suspended users and unverified password-provider emails.",
+            "url": {
+              "raw": "{{base_url}}/api/v1/accounts/login/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "accounts",
+                "login",
+                ""
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"jane@example.com\",\n  \"password\": \"Str0ngPass!x\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "noauth"
+            },
+            "event": {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "const d = json.data || {};",
+                  "if (d.access_token) pm.collectionVariables.set('access_token', d.access_token);",
+                  "if (d.refresh_token) pm.collectionVariables.set('refresh_token', d.refresh_token);"
+                ]
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Google (Firebase) Login",
+          "request": {
+            "method": "POST",
+            "description": "Sign in / sign up with a Firebase ID token. **Public.**\n\n**Body**: `firebase_id_token` (required, verified server-side), `provider` (`\"google\"`, default), `email`, `email_verified`, `name`, `photo_url`, `phone_number`, `firebase_uid` (only if the token cannot be decoded server-side).\n\n**200** → `data: {access_token, refresh_token}`.",
+            "url": {
+              "raw": "{{base_url}}/api/v1/accounts/google/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "accounts",
+                "google",
+                ""
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"provider\": \"google\",\n  \"firebase_id_token\": \"<firebase-id-token>\",\n  \"email_verified\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "noauth"
+            },
+            "event": {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "const d = json.data || {};",
+                  "if (d.access_token) pm.collectionVariables.set('access_token', d.access_token);",
+                  "if (d.refresh_token) pm.collectionVariables.set('refresh_token', d.refresh_token);"
+                ]
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Refresh Token",
+          "request": {
+            "method": "POST",
+            "description": "Rotate JWT pair. Old refresh token is blacklisted. **Public.**\n\n**Body**: `refresh` (required).\n\n**200** → `data: {access, refresh}` (note the simplejwt key names; the test script maps them to `access_token` / `refresh_token`).",
+            "url": {
+              "raw": "{{base_url}}/api/v1/accounts/refresh/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "accounts",
+                "refresh",
+                ""
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refresh\": \"{{refresh_token}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "noauth"
+            },
+            "event": [
+              {
+                "listen": "test",
+                "script": {
+                  "type": "text/javascript",
+                  "exec": [
+                    "const json = pm.response.json();",
+                    "const d = json.data || {};",
+                    "if (d.access) pm.collectionVariables.set('access_token', d.access);",
+                    "if (d.refresh) pm.collectionVariables.set('refresh_token', d.refresh);"
+                  ]
+                }
+              }
+            ]
+          },
+          "response": []
+        },
+        {
+          "name": "Request Password Reset",
+          "request": {
+            "method": "POST",
+            "description": "Send a password reset link by email. **Public.** Always returns a generic message (no user enumeration).\n\n**Body**: `email` (required).",
+            "url": {
+              "raw": "{{base_url}}/api/v1/accounts/request-reset-password/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "accounts",
+                "request-reset-password",
+                ""
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"jane@example.com\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Reset Password",
+          "request": {
+            "method": "POST",
+            "description": "Complete a password reset using the emailed `uid` + `token`. **Public.**\n\n**Body**: `uid`, `token`, `new_password` (min 8), `confirm_password` — all required.",
+            "url": {
+              "raw": "{{base_url}}/api/v1/accounts/reset-password/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "accounts",
+                "reset-password",
+                ""
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"uid\": \"<uid-from-email>\",\n  \"token\": \"<token-from-email>\",\n  \"new_password\": \"N3wPass!x\",\n  \"confirm_password\": \"N3wPass!x\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Profile",
+          "request": {
+            "method": "GET",
+            "description": "Current user's profile. **Auth required.**\n\n**200** → `data`: full user object (`id, email, name, provider, status, is_email_verified, phone, avatar_url, city, country, timezone, created_at, updated_at, last_login`).",
+            "url": {
+              "raw": "{{base_url}}/api/v1/accounts/profile/details/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "accounts",
+                "profile",
+                "details",
+                ""
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Update Profile",
+          "request": {
+            "method": "PATCH",
+            "description": "Update the current user's profile (all fields optional). **Auth required.** Accepts JSON or `multipart/form-data`.\n\n**Fields**: `name`, `phone`, `country` (≤100), `city` (≤100), `timezone` (IANA name), `profile_picture` (image file → Cloudflare R2), `clear_profile_picture` (bool, exclusive with `profile_picture`).",
+            "url": {
+              "raw": "{{base_url}}/api/v1/accounts/profile/update/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "accounts",
+                "profile",
+                "update",
+                ""
+              ]
+            },
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "name",
+                  "type": "text",
+                  "value": "Jane Doe"
+                },
+                {
+                  "key": "phone",
+                  "type": "text",
+                  "value": "+8801700000000"
+                },
+                {
+                  "key": "country",
+                  "type": "text",
+                  "value": "Bangladesh"
+                },
+                {
+                  "key": "city",
+                  "type": "text",
+                  "value": "Dhaka"
+                },
+                {
+                  "key": "timezone",
+                  "type": "text",
+                  "value": "Asia/Dhaka"
+                },
+                {
+                  "key": "profile_picture",
+                  "type": "file",
+                  "src": [],
+                  "description": "Optional image upload (multipart only)"
+                },
+                {
+                  "key": "clear_profile_picture",
+                  "type": "text",
+                  "value": "false",
+                  "description": "Set true to remove the current avatar"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Change Password",
+          "request": {
+            "method": "PATCH",
+            "description": "Change password for the logged-in user. **Auth required.**\n\n**Body**: `current_password`, `new_password` (min 8, must differ), `confirm_password` — all required.",
+            "url": {
+              "raw": "{{base_url}}/api/v1/accounts/settings/change-password/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "accounts",
+                "settings",
+                "change-password",
+                ""
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"current_password\": \"Str0ngPass!x\",\n  \"new_password\": \"N3wPass!x\",\n  \"confirm_password\": \"N3wPass!x\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Delete Account",
+          "request": {
+            "method": "DELETE",
+            "description": "Soft-delete the current account. **Auth required.**\n\n**200** → `data: {deleted_at}`.",
+            "url": {
+              "raw": "{{base_url}}/api/v1/accounts/settings/delete-account/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "accounts",
+                "settings",
+                "delete-account",
+                ""
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Workspaces",
+      "description": "Multi-tenant workspaces and member management. Base path: `/api/v1/workspaces/`. Requires an active workspace membership; admin operations require the workspace ADMIN role (owner is always ADMIN).",
+      "item": [
+        {
+          "name": "Get Current Workspace",
+          "request": {
+            "method": "GET",
+            "description": "Retrieve a workspace. If `workspace` is omitted, returns the first workspace where the caller is owner/active member.\n\n**Query**: `workspace` (slug, optional).\n\n**200** → `data`: `{id, name, slug, logo, industry, owner {id, email, name}, member_count, current_user_role, is_active, created_at, updated_at}`.",
+            "url": {
+              "raw": "{{base_url}}/api/v1/workspaces/?workspace={{workspace}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "workspaces",
+                ""
+              ],
+              "query": [
+                {
+                  "key": "workspace",
+                  "value": "{{workspace}}",
+                  "description": "Workspace slug (optional here)"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "List Workspaces",
+          "request": {
+            "method": "GET",
+            "description": "Paginated list of the caller's workspaces.\n\n**Query**: `page`, `page_size`.\n\n**200** → `data`: workspace list + `meta`.",
+            "url": {
+              "raw": "{{base_url}}/api/v1/workspaces/list/?page=1&page_size=20",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "workspaces",
+                "list",
+                ""
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "page_size",
+                  "value": "20"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Create Workspace",
+          "request": {
+            "method": "POST",
+            "description": "Create a workspace (caller becomes owner). Accepts JSON or multipart (logo).\n\n**Body**: `name` (required, ≤120), `industry` (≤100, optional), `logo` (image, optional), `clear_logo` (bool, optional). Saves the new slug to `workspace`.",
+            "url": {
+              "raw": "{{base_url}}/api/v1/workspaces/create/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "workspaces",
+                "create",
+                ""
+              ]
+            },
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "name",
+                  "type": "text",
+                  "value": "Acme Inc",
+                  "description": "Required"
+                },
+                {
+                  "key": "industry",
+                  "type": "text",
+                  "value": "SaaS",
+                  "description": "Optional"
+                },
+                {
+                  "key": "logo",
+                  "type": "file",
+                  "src": [],
+                  "description": "Optional image (multipart only)"
+                }
+              ]
+            },
+            "event": [
+              {
+                "listen": "test",
+                "script": {
+                  "type": "text/javascript",
+                  "exec": [
+                    "const json = pm.response.json();",
+                    "const d = json.data || {};",
+                    "if (d.slug) pm.collectionVariables.set('workspace', d.slug);"
+                  ]
+                }
+              }
+            ]
+          },
+          "response": []
+        },
+        {
+          "name": "Update Workspace",
+          "request": {
+            "method": "PATCH",
+            "description": "Update a workspace. **Owner only** (403 otherwise). Supports PUT and PATCH.\n\n**Query**: `workspace` (slug, required).\n\n**Body**: same fields as create (all optional on PATCH).",
+            "url": {
+              "raw": "{{base_url}}/api/v1/workspaces/update/?workspace={{workspace}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "workspaces",
+                "update",
+                ""
+              ],
+              "query": [
+                {
+                  "key": "workspace",
+                  "value": "{{workspace}}",
+                  "description": "Workspace slug (required)"
+                }
+              ]
+            },
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "name",
+                  "type": "text",
+                  "value": "Acme Inc"
+                },
+                {
+                  "key": "industry",
+                  "type": "text",
+                  "value": "SaaS"
+                },
+                {
+                  "key": "logo",
+                  "type": "file",
+                  "src": [],
+                  "description": "Optional image (multipart only)"
+                },
+                {
+                  "key": "clear_logo",
+                  "type": "text",
+                  "value": "false"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Delete Workspace",
+          "request": {
+            "method": "DELETE",
+            "description": "Soft-delete a workspace. Requires workspace **ADMIN**.\n\n**Query**: `workspace` (slug, required).",
+            "url": {
+              "raw": "{{base_url}}/api/v1/workspaces/delete/?workspace={{workspace}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "workspaces",
+                "delete",
+                ""
+              ],
+              "query": [
+                {
+                  "key": "workspace",
+                  "value": "{{workspace}}",
+                  "description": "Workspace slug (required)"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Team",
+          "description": "Workspace members, invitations, and roles.",
+          "item": [
+            {
+              "name": "List Members",
+              "request": {
+                "method": "GET",
+                "description": "Paginated members, including pending invitations (synthesized rows).\n\n**Query**: `workspace` (slug, required), `page`, `page_size`.\n\n**200** → `data`: `{id, user {email, name, avatar}, role, is_active, invitation_request_accepted, last_active, last_login, invited_at, created_at, updated_at}`.",
+                "url": {
+                  "raw": "{{base_url}}/api/v1/workspaces/team/member-list/?workspace={{workspace}}&page=1&page_size=20",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "workspaces",
+                    "team",
+                    "member-list",
+                    ""
+                  ],
+                  "query": [
+                    {
+                      "key": "workspace",
+                      "value": "{{workspace}}",
+                      "description": "Workspace slug (required)"
+                    },
+                    {
+                      "key": "page",
+                      "value": "1"
+                    },
+                    {
+                      "key": "page_size",
+                      "value": "20"
+                    }
+                  ]
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Member Details",
+              "request": {
+                "method": "GET",
+                "description": "Details of one membership.\n\n**Query**: `workspace` (slug, required), `member_email` (email, required).",
+                "url": {
+                  "raw": "{{base_url}}/api/v1/workspaces/team/details/?workspace={{workspace}}&member_email={{member_email}}",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "workspaces",
+                    "team",
+                    "details",
+                    ""
+                  ],
+                  "query": [
+                    {
+                      "key": "workspace",
+                      "value": "{{workspace}}",
+                      "description": "Workspace slug"
+                    },
+                    {
+                      "key": "member_email",
+                      "value": "{{member_email}}",
+                      "description": "Member email"
+                    }
+                  ]
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Invite Member",
+              "request": {
+                "method": "POST",
+                "description": "Email a workspace invitation. **Owner only.**\n\n**Query**: `workspace` (slug, required).\n\n**Body**: `email` (required).\n\n**201** → `data: {id, workspace, email, expires_at, created_at}`.",
+                "url": {
+                  "raw": "{{base_url}}/api/v1/workspaces/team/invite/?workspace={{workspace}}",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "workspaces",
+                    "team",
+                    "invite",
+                    ""
+                  ],
+                  "query": [
+                    {
+                      "key": "workspace",
+                      "value": "{{workspace}}",
+                      "description": "Workspace slug"
+                    }
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"email\": \"teammate@example.com\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Update Member Role",
+              "request": {
+                "method": "PATCH",
+                "description": "Change a member's role. Requires workspace **ADMIN**. Owner must remain ADMIN. Supports GET (view) and PATCH.\n\n**Query**: `workspace`, `member_email` (both required).\n\n**Body**: `role` (`ADMIN` | `MEMBER`).",
+                "url": {
+                  "raw": "{{base_url}}/api/v1/workspaces/team/role/?workspace={{workspace}}&member_email={{member_email}}",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "workspaces",
+                    "team",
+                    "role",
+                    ""
+                  ],
+                  "query": [
+                    {
+                      "key": "workspace",
+                      "value": "{{workspace}}"
+                    },
+                    {
+                      "key": "member_email",
+                      "value": "{{member_email}}"
+                    }
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"role\": \"ADMIN\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Accept Invitation",
+              "request": {
+                "method": "POST",
+                "description": "Accept a workspace invitation with the emailed token. **Authenticated user only** (no prior membership needed); the user's email must match the invitation.\n\n**Body**: `token` (required).",
+                "url": {
+                  "raw": "{{base_url}}/api/v1/workspaces/team/accept-invite/",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "workspaces",
+                    "team",
+                    "accept-invite",
+                    ""
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"token\": \"<invitation-token>\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Remove Member",
+              "request": {
+                "method": "DELETE",
+                "description": "Remove a member from a workspace. Requires workspace **ADMIN**. The owner cannot be removed (400).\n\n**Query**: `workspace`, `member_email` (both required).",
+                "url": {
+                  "raw": "{{base_url}}/api/v1/workspaces/team/remove-member/?workspace={{workspace}}&member_email={{member_email}}",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "workspaces",
+                    "team",
+                    "remove-member",
+                    ""
+                  ],
+                  "query": [
+                    {
+                      "key": "workspace",
+                      "value": "{{workspace}}"
+                    },
+                    {
+                      "key": "member_email",
+                      "value": "{{member_email}}"
+                    }
+                  ]
+                }
+              },
+              "response": []
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Chatbots",
+      "description": "Chatbot configuration, widget settings, teams, and the public visitor/widget API. Base path: `/api/v1/chatbots/`. Most dashboard endpoints resolve the chatbot from the `chatbot` query param (slug) and require an active chatbot membership (or workspace admin).",
+      "item": [
+        {
+          "name": "Create Chatbot",
+          "request": {
+            "method": "POST",
+            "description": "Create a chatbot inside a workspace. Caller must be an active member of that workspace. Accepts JSON or multipart (logo).\n\n**Body (key fields)**: one of `workspace` (uuid-or-slug) / `workspace_id` / `workspace_slug` (required on create), `chatbot_name` (≤120, required, unique per workspace), `business_name`, `description`, `welcome_message`, `fallback_message`, `instructions`, `escalation_rule`, `never_answer`, `language` (default `en`), `timezone` (default `UTC`), `ai_enabled`, `knowledge_base_enabled`, `human_handoff_enabled`, `other_settings` (JSON), `status`, `logo` (image), `clear_logo` (bool).\n\n**201** → `data`: full chatbot incl. `id`, `slug`, `workspace {id, name, slug}`, `member_count`, `current_user_role`.",
+            "url": {
+              "raw": "{{base_url}}/api/v1/chatbots/create/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "chatbots",
+                "create",
+                ""
+              ]
+            },
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "workspace",
+                  "type": "text",
+                  "value": "{{workspace}}",
+                  "description": "Workspace slug, uuid, or use workspace_id/workspace_slug"
+                },
+                {
+                  "key": "chatbot_name",
+                  "type": "text",
+                  "value": "Support Bot",
+                  "description": "Required, unique per workspace"
+                },
+                {
+                  "key": "business_name",
+                  "type": "text",
+                  "value": "Acme Support"
+                },
+                {
+                  "key": "description",
+                  "type": "text",
+                  "value": "Handles customer questions"
+                },
+                {
+                  "key": "welcome_message",
+                  "type": "text",
+                  "value": "Hi! How can I help?"
+                },
+                {
+                  "key": "ai_enabled",
+                  "type": "text",
+                  "value": "true"
+                },
+                {
+                  "key": "logo",
+                  "type": "file",
+                  "src": [],
+                  "description": "Optional image (multipart only)"
+                }
+              ]
+            },
+            "event": [
+              {
+                "listen": "test",
+                "script": {
+                  "type": "text/javascript",
+                  "exec": [
+                    "const json = pm.response.json();",
+                    "const d = json.data || {};",
+                    "if (d.slug) pm.collectionVariables.set('chatbot_slug', d.slug);"
+                  ]
+                }
+              }
+            ]
+          },
+          "response": []
+        },
+        {
+          "name": "List Chatbots",
+          "request": {
+            "method": "GET",
+            "description": "Paginated chatbots visible to the caller.\n\n**Query**: `workspace` (slug, optional filter), `page`, `page_size`.\n\n**200** → `data`: `{slug, workspace {id, name, slug}, chatbot_name, business_name, description, ai_enabled, logo, status, current_user_role, subscription_plan_name, created_by {name, email, avatar}, members [{name, avatar}]}`.",
+            "url": {
+              "raw": "{{base_url}}/api/v1/chatbots/list/?workspace={{workspace}}&page=1&page_size=20",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "chatbots",
+                "list",
+                ""
+              ],
+              "query": [
+                {
+                  "key": "workspace",
+                  "value": "{{workspace}}",
+                  "description": "Optional workspace filter"
+                },
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "page_size",
+                  "value": "20"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "My Chatbots (Picker)",
+          "request": {
+            "method": "GET",
+            "description": "Lightweight chatbot picker list: every non-deleted chatbot the caller created or is an active member of, across workspaces.\n\n**Query**: `workspace` (slug, optional filter), `page`, `page_size`.\n\n**200** → `data`: `[{name, slug, avatar, is_my_chatbot}]` where `is_my_chatbot` is `true` when the caller created the chatbot.",
+            "url": {
+              "raw": "{{base_url}}/api/v1/chatbots/my-chatbot-list/?page=1&page_size=20",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "chatbots",
+                "my-chatbot-list",
+                ""
+              ],
+              "query": [
+                {
+                  "key": "workspace",
+                  "value": "{{workspace}}",
+                  "disabled": true
+                },
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "page_size",
+                  "value": "20"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Chatbot Base Info",
+          "request": {
+            "method": "GET",
+            "description": "Overview for the chatbot dashboard: features, capacity/limits, and current subscription.\n\n**Query**: `chatbot` (slug, required).\n\n**200** → `data`: `{workspace {name, slug}, chatbot_name, slug, language, timezone, features {knowledge_base_enabled, human_handoff_enabled, appointment_booking_enabled, lead_captures_enabled}, capacity {ai_message_limit, current_ai_message_count, test_ai_message_limit, current_test_ai_message_count, file_size_limit_bytes, current_file_size_bytes, knowledge_chunk_limit, current_knowledge_chunk_count, active_features}, current_subscription_plan {...}|null, ai_enabled, logo, status, allowed_urls [{id, url, is_active}]}`.",
+            "url": {
+              "raw": "{{base_url}}/api/v1/chatbots/base/?chatbot={{chatbot_slug}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "chatbots",
+                "base",
+                ""
+              ],
+              "query": [
+                {
+                  "key": "chatbot",
+                  "value": "{{chatbot_slug}}",
+                  "description": "Chatbot slug (required)"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Chatbot Details",
+          "request": {
+            "method": "GET",
+            "description": "Full chatbot configuration.\n\n**Query**: `chatbot` (slug, required).",
+            "url": {
+              "raw": "{{base_url}}/api/v1/chatbots/details/?chatbot={{chatbot_slug}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "chatbots",
+                "details",
+                ""
+              ],
+              "query": [
+                {
+                  "key": "chatbot",
+                  "value": "{{chatbot_slug}}",
+                  "description": "Chatbot slug (required)"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Widget Details",
+          "request": {
+            "method": "GET",
+            "description": "Embeddable widget configuration, including the `public_key` used by the public API. Saves `public_key` to the collection variables.\n\n**Query**: `chatbot` (slug, required).\n\n**200** → `data`: `{id, chatbot_name, business_name, description, slug, logo, welcome_message, status, widget_settings {id, is_enabled, public_key, primary_color, secondary_color, launcher_position, launcher_text, header_title, header_description, show_branding, theme, other_settings, ...}, allowed_urls [{id, url, is_active}]}`.",
+            "url": {
+              "raw": "{{base_url}}/api/v1/chatbots/widget-details/?chatbot={{chatbot_slug}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "chatbots",
+                "widget-details",
+                ""
+              ],
+              "query": [
+                {
+                  "key": "chatbot",
+                  "value": "{{chatbot_slug}}",
+                  "description": "Chatbot slug (required)"
+                }
+              ]
+            },
+            "event": [
+              {
+                "listen": "test",
+                "script": {
+                  "type": "text/javascript",
+                  "exec": [
+                    "const json = pm.response.json();",
+                    "const d = json.data || {};",
+                    "const ws = d.widget_settings || {};",
+                    "if (ws.public_key) pm.collectionVariables.set('public_key', ws.public_key);"
+                  ]
+                }
+              }
+            ]
+          },
+          "response": []
+        },
+        {
+          "name": "Update Widget",
+          "request": {
+            "method": "PATCH",
+            "description": "Update widget settings and allowed origins. Requires the `setup_configuration` chatbot permission. Supports PUT and PATCH; at least one key required.\n\n**Query**: `chatbot` (slug, required).\n\n**Body**: `widget_settings` (object: `is_enabled`, `primary_color`, `secondary_color`, `launcher_position`, `launcher_text`, `header_title`, `header_description`, `show_branding`, `theme`, `other_settings`), `allowed_urls` (list of `{id? | url?, is_active?}` — `id` or `url` required per item), `removed_allowed_url_id` (uuid).",
+            "url": {
+              "raw": "{{base_url}}/api/v1/chatbots/widget-update/?chatbot={{chatbot_slug}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "chatbots",
+                "widget-update",
+                ""
+              ],
+              "query": [
+                {
+                  "key": "chatbot",
+                  "value": "{{chatbot_slug}}"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"widget_settings\": {\n    \"is_enabled\": true,\n    \"primary_color\": \"#4F46E5\",\n    \"launcher_position\": \"right\",\n    \"theme\": \"light\"\n  },\n  \"allowed_urls\": [\n    {\n      \"url\": \"https://acme.example.com\",\n      \"is_active\": true\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Update Chatbot",
+          "request": {
+            "method": "PATCH",
+            "description": "Update chatbot configuration. Requires the `setup_configuration` permission. Workspace fields cannot be changed (400). Supports PUT and PATCH.\n\n**Query**: `chatbot` (slug, required).\n\n**Body**: any writable field from create (e.g. `chatbot_name`, `instructions`, `welcome_message`, `ai_enabled`, ...).",
+            "url": {
+              "raw": "{{base_url}}/api/v1/chatbots/update/?chatbot={{chatbot_slug}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "chatbots",
+                "update",
+                ""
+              ],
+              "query": [
+                {
+                  "key": "chatbot",
+                  "value": "{{chatbot_slug}}"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"instructions\": \"Answer concisely and politely. Escalate billing questions.\",\n  \"ai_enabled\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Delete Chatbot",
+          "request": {
+            "method": "DELETE",
+            "description": "Soft-delete a chatbot (status → DISABLED). Requires workspace ADMIN or chatbot ADMIN.\n\n**Query**: `chatbot` (slug, required).",
+            "url": {
+              "raw": "{{base_url}}/api/v1/chatbots/delete/?chatbot={{chatbot_slug}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "chatbots",
+                "delete",
+                ""
+              ],
+              "query": [
+                {
+                  "key": "chatbot",
+                  "value": "{{chatbot_slug}}"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Team",
+          "description": "Chatbot members, permissions, and invitations. Base path: `/api/v1/chatbots/team/`.",
+          "item": [
+            {
+              "name": "List Members",
+              "request": {
+                "method": "GET",
+                "description": "Paginated chatbot members incl. pending invitations.\n\n**Query**: `chatbot` (slug, required), `page`, `page_size`.\n\n**200** → `data`: `{id, user {email, name, avatar}, role, permissions, all_permissions, is_active, last_active, last_login, invited_at, created_at, updated_at}`.",
+                "url": {
+                  "raw": "{{base_url}}/api/v1/chatbots/team/list/?chatbot={{chatbot_slug}}&page=1&page_size=20",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "chatbots",
+                    "team",
+                    "list",
+                    ""
+                  ],
+                  "query": [
+                    {
+                      "key": "chatbot",
+                      "value": "{{chatbot_slug}}"
+                    },
+                    {
+                      "key": "page",
+                      "value": "1"
+                    },
+                    {
+                      "key": "page_size",
+                      "value": "20"
+                    }
+                  ]
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Member Details",
+              "request": {
+                "method": "GET",
+                "description": "One membership with effective permissions.\n\n**Query**: `chatbot`, `member_email` (both required).",
+                "url": {
+                  "raw": "{{base_url}}/api/v1/chatbots/team/details/?chatbot={{chatbot_slug}}&member_email={{member_email}}",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "chatbots",
+                    "team",
+                    "details",
+                    ""
+                  ],
+                  "query": [
+                    {
+                      "key": "chatbot",
+                      "value": "{{chatbot_slug}}"
+                    },
+                    {
+                      "key": "member_email",
+                      "value": "{{member_email}}"
+                    }
+                  ]
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Invite Member",
+              "request": {
+                "method": "POST",
+                "description": "Invite a member by email with optional permissions (defaults apply).\n\n**Query**: `chatbot` (slug, required).\n\n**Body**: `email` (required), `permissions` (list of permission strings, optional).\n\n**201** → `data: {id, chatbot, chatbot_name, email, permissions, invited_at, expires_at, created_at}`.",
+                "url": {
+                  "raw": "{{base_url}}/api/v1/chatbots/team/invite/?chatbot={{chatbot_slug}}",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "chatbots",
+                    "team",
+                    "invite",
+                    ""
+                  ],
+                  "query": [
+                    {
+                      "key": "chatbot",
+                      "value": "{{chatbot_slug}}"
+                    }
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"email\": \"agent@example.com\",\n  \"permissions\": [\n    \"chat_session_management\"\n  ]\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Update Member Permissions",
+              "request": {
+                "method": "PATCH",
+                "description": "Replace a member's permission list. Requires chatbot ADMIN (or workspace ADMIN). Supports GET (view) and PATCH.\n\n**Query**: `chatbot`, `member_email` (both required).\n\n**Body**: `permissions` (list, required; may be empty).",
+                "url": {
+                  "raw": "{{base_url}}/api/v1/chatbots/team/permissions/?chatbot={{chatbot_slug}}&member_email={{member_email}}",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "chatbots",
+                    "team",
+                    "permissions",
+                    ""
+                  ],
+                  "query": [
+                    {
+                      "key": "chatbot",
+                      "value": "{{chatbot_slug}}"
+                    },
+                    {
+                      "key": "member_email",
+                      "value": "{{member_email}}"
+                    }
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"permissions\": [\n    \"setup_configuration\",\n    \"chat_session_management\"\n  ]\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Accept Invitation",
+              "request": {
+                "method": "POST",
+                "description": "Accept a chatbot invitation. If the invited email has no account yet, include signup fields and JWT tokens are returned.\n\n**Body**: `token` (required); for new users also `name`, `password` (min 8), `confirm_password`.",
+                "url": {
+                  "raw": "{{base_url}}/api/v1/chatbots/team/accept-invite/",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "chatbots",
+                    "team",
+                    "accept-invite",
+                    ""
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"token\": \"<invitation-token>\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Remove Member",
+              "request": {
+                "method": "DELETE",
+                "description": "Remove a chatbot membership (hard delete). Requires workspace ADMIN or chatbot ADMIN.\n\n**Query**: `chatbot`, `member_email` (both required).",
+                "url": {
+                  "raw": "{{base_url}}/api/v1/chatbots/team/remove-member/?chatbot={{chatbot_slug}}&member_email={{member_email}}",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "chatbots",
+                    "team",
+                    "remove-member",
+                    ""
+                  ],
+                  "query": [
+                    {
+                      "key": "chatbot",
+                      "value": "{{chatbot_slug}}"
+                    },
+                    {
+                      "key": "member_email",
+                      "value": "{{member_email}}"
+                    }
+                  ]
+                }
+              },
+              "response": []
+            }
+          ]
+        },
+        {
+          "name": "Public Widget API",
+          "description": "Visitor-facing endpoints for the embeddable widget. **No JWT auth** — the chatbot is addressed by its `public_key` (see Widget Details). The `Origin` header must match the chatbot's allowed widget origins. Conversation actions after creation require `Authorization: Bearer <conversation_token>`.",
+          "item": [
+            {
+              "name": "Public Chatbot Config",
+              "request": {
+                "method": "GET",
+                "description": "Bootstrap data for the widget. **Public.**\n\n**200** → `data`: `{chatbot_name, logo, language, welcome_message, widget_settings {colors, launcher, header, theme, ...}, lead_config|null {is_enabled, collectable_fields, auto_collect, require_consent, consent_message}, appointment_config|null {collectable_fields, confirmation_message}}`.",
+                "url": {
+                  "raw": "{{base_url}}/api/v1/chatbots/{{public_key}}/config/",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "chatbots",
+                    "{{public_key}}",
+                    "config",
+                    ""
+                  ]
+                },
+                "auth": {
+                  "type": "noauth"
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Create Visitor",
+              "request": {
+                "method": "POST",
+                "description": "Create a visitor and start a chat session. Anonymous retries reuse an existing open session. Submitting `lead_data` validates the form, creates or updates the lead, and starts a new session. **Public** (Origin check).\n\n**Query**: `visitor_id` (required).\n\n**Body**: `lead_data` (JSON, optional), `user_metadata` (JSON, optional), `metadata` (JSON, optional).\n\n**201** (session created) / **200** (existing anonymous session) → `data: {visitor, session, conversation_token, websocket_url, visitor_created, session_created}`.",
+                "url": {
+                  "raw": "{{base_url}}/api/v1/chatbots/{{public_key}}/visitor/create/?visitor_id={{visitor_id}}",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "chatbots",
+                    "{{public_key}}",
+                    "visitor",
+                    "create",
+                    ""
+                  ],
+                  "query": [
+                    {
+                      "key": "visitor_id",
+                      "value": "{{visitor_id}}"
+                    }
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"lead_data\": {\n    \"name\": \"Jane\",\n    \"email\": \"jane@example.com\"\n  },\n  \"user_metadata\": {\n    \"locale\": \"en-US\"\n  }\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "auth": {
+                  "type": "noauth"
+                },
+                "event": [
+                  {
+                    "listen": "test",
+                    "script": {
+                      "type": "text/javascript",
+                      "exec": [
+                        "const json = pm.response.json();",
+                        "const d = json.data || {};",
+                        "if (d.conversation_token) pm.collectionVariables.set('conversation_token', d.conversation_token);",
+                        "if (d.session && d.session.id) pm.collectionVariables.set('session_id', d.session.id);",
+                        "if (d.session && d.session.visitor_id) pm.collectionVariables.set('visitor_id', d.session.visitor_id);"
+                      ]
+                    }
+                  }
+                ]
+              },
+              "response": []
+            },
+            {
+              "name": "Send Visitor Message",
+              "request": {
+                "method": "POST",
+                "description": "Send a visitor message. AI reply is generated asynchronously (WebSocket / polling). **Auth: `Bearer {{conversation_token}}`** (not the account JWT) + Origin check.\n\n**Body**: `content` (≤10000, required, non-blank), `client_message_id` (idempotency key, optional), `metadata` (JSON).\n\n**201** → `data: {message, duplicate, ai_queued}`. **409** on idempotency conflict.",
+                "url": {
+                  "raw": "{{base_url}}/api/v1/chatbots/{{public_key}}/messages/create/?visitor_id={{visitor_id}}&session_id={{session_id}}",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "chatbots",
+                    "{{public_key}}",
+                    "messages",
+                    "create",
+                    ""
+                  ],
+                  "query": [
+                    {
+                      "key": "visitor_id",
+                      "value": "{{visitor_id}}"
+                    },
+                    {
+                      "key": "session_id",
+                      "value": "{{session_id}}"
+                    }
+                  ]
+                },
+                "header": [
+                  {
+                    "key": "Authorization",
+                    "value": "Bearer {{conversation_token}}",
+                    "type": "text"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"content\": \"What are your business hours?\",\n  \"client_message_id\": \"msg-001\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "auth": {
+                  "type": "noauth"
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Book Appointment (Visitor)",
+              "request": {
+                "method": "POST",
+                "description": "Book an appointment from the widget. **Auth: `Bearer {{conversation_token}}`** + Origin check.\n\n**Query**: `session_id` (UUID, required).\n\n**Body**: `starts_at` (ISO-8601 **with explicit UTC offset**, required), `collected_fields` (JSON, optional).\n\n**201** → `data: {appointment {id, collected_fields, starts_at, ends_at, status, created_at}, duplicate, reply_queued}`. The confirmation arrives as the next chat message. **409** on booking validation failure.",
+                "url": {
+                  "raw": "{{base_url}}/api/v1/chatbots/{{public_key}}/book-appointment/?session_id={{session_id}}",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "chatbots",
+                    "{{public_key}}",
+                    "book-appointment",
+                    ""
+                  ],
+                  "query": [
+                    {
+                      "key": "session_id",
+                      "value": "{{session_id}}"
+                    }
+                  ]
+                },
+                "header": [
+                  {
+                    "key": "Authorization",
+                    "value": "Bearer {{conversation_token}}",
+                    "type": "text"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"starts_at\": \"2026-10-01T10:00:00+00:00\",\n  \"collected_fields\": {\n    \"name\": \"Jane\"\n  }\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "auth": {
+                  "type": "noauth"
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Visitor Details",
+              "request": {
+                "method": "GET",
+                "description": "Public visitor profile. **Public** (Origin check).\n\n**Query**: `visitor_id` (required).\n\n**200** → `data: {visitor_id, lead_id|null, lead_data, user_metadata}`.",
+                "url": {
+                  "raw": "{{base_url}}/api/v1/chatbots/{{public_key}}/visitor/details/?visitor_id={{visitor_id}}",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "chatbots",
+                    "{{public_key}}",
+                    "visitor",
+                    "details",
+                    ""
+                  ],
+                  "query": [
+                    {
+                      "key": "visitor_id",
+                      "value": "{{visitor_id}}"
+                    }
+                  ]
+                },
+                "auth": {
+                  "type": "noauth"
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Visitor Sessions",
+              "request": {
+                "method": "GET",
+                "description": "Conversation history for a visitor. **Public** (Origin check).\n\n**200** → `data`: list of `{id, status, last_activity_at, last_message {content, sender}|null}`.",
+                "url": {
+                  "raw": "{{base_url}}/api/v1/chatbots/{{public_key}}/sessions/list/?visitor_id={{visitor_id}}",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "chatbots",
+                    "{{public_key}}",
+                    "sessions",
+                    "list",
+                    ""
+                  ],
+                  "query": [
+                    {
+                      "key": "visitor_id",
+                      "value": "{{visitor_id}}"
+                    }
+                  ]
+                },
+                "auth": {
+                  "type": "noauth"
+                }
+              },
+              "response": []
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Chat (Dashboard)",
+      "description": "Agent-facing conversation management: sessions, messages, human takeover, transfers, and session analytics. Base path: `/api/v1/chat/`. Requires chatbot membership with the `chat_session_management` permission. **All endpoints use the `chatbot_slug` query param.**",
+      "item": [
+        {
+          "name": "Sessions",
+          "description": null,
+          "item": [
+            {
+              "name": "List Sessions",
+              "request": {
+                "method": "GET",
+                "description": "Paginated chat sessions.\n\n**Query**: `chatbot_slug` (required), `search` (matches message content or visitor name/email), `assigned_to` (chatbot-member email; matches current ownership or a live pending transfer request), `status` (`open|resolved|closed`), `assignment` (`all|mine|assigned|unassigned`, default `all`), `my_session` (bool), `requires_attention` (bool), `is_recently_active` (bool — active in last 10 min), `page`, `page_size`.\n\n**200** → `data`: `{id, channel (web_widget|messenger|instagram|whatsapp|api), user_data {name, detected_country}, unread_message_count, last_message {sender, content}|null, ai_enabled, is_recently_active, status, assigned_to {name}|null, transfer_requested_to {name}|null, requires_attention, attention_reason, last_activity_at}`.",
+                "url": {
+                  "raw": "{{base_url}}/api/v1/chat/sessions/list/?chatbot_slug={{chatbot_slug}}&status=open&assignment=all&page=1&page_size=20",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "chat",
+                    "sessions",
+                    "list",
+                    ""
+                  ],
+                  "query": [
+                    {
+                      "key": "chatbot_slug",
+                      "value": "{{chatbot_slug}}",
+                      "description": "Required"
+                    },
+                    {
+                      "key": "status",
+                      "value": "open",
+                      "description": "Optional: open|resolved|closed"
+                    },
+                    {
+                      "key": "assignment",
+                      "value": "all",
+                      "description": "Optional: all|mine|assigned|unassigned"
+                    },
+                    {
+                      "key": "search",
+                      "value": "",
+                      "description": "Optional: message content or visitor name/email",
+                      "disabled": true
+                    },
+                    {
+                      "key": "assigned_to",
+                      "value": "agent@example.com",
+                      "description": "Optional: current assignee or pending transfer recipient email",
+                      "disabled": true
+                    },
+                    {
+                      "key": "page",
+                      "value": "1"
+                    },
+                    {
+                      "key": "page_size",
+                      "value": "20"
+                    }
+                  ]
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Session Details",
+              "request": {
+                "method": "GET",
+                "description": "Full session record.\n\n**Query**: `chatbot_slug`, `session_id` (both required).",
+                "url": {
+                  "raw": "{{base_url}}/api/v1/chat/sessions/details/?chatbot_slug={{chatbot_slug}}&session_id={{session_id}}",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "chat",
+                    "sessions",
+                    "details",
+                    ""
+                  ],
+                  "query": [
+                    {
+                      "key": "chatbot_slug",
+                      "value": "{{chatbot_slug}}"
+                    },
+                    {
+                      "key": "session_id",
+                      "value": "{{session_id}}"
+                    }
+                  ]
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Mark Session Read",
+              "request": {
+                "method": "PATCH",
+                "description": "Mark visitor messages in the session as read.\n\n**Query**: `chatbot_slug`, `session_id`.\n\n**200** → `data: {marked_read_count}`.",
+                "url": {
+                  "raw": "{{base_url}}/api/v1/chat/sessions/mark-read/?chatbot_slug={{chatbot_slug}}&session_id={{session_id}}",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "chat",
+                    "sessions",
+                    "mark-read",
+                    ""
+                  ],
+                  "query": [
+                    {
+                      "key": "chatbot_slug",
+                      "value": "{{chatbot_slug}}"
+                    },
+                    {
+                      "key": "session_id",
+                      "value": "{{session_id}}"
+                    }
+                  ]
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Delete Session",
+              "request": {
+                "method": "DELETE",
+                "description": "Hard-delete a session.\n\n**Query**: `chatbot_slug`, `session_id`.",
+                "url": {
+                  "raw": "{{base_url}}/api/v1/chat/sessions/delete/?chatbot_slug={{chatbot_slug}}&session_id={{session_id}}",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "chat",
+                    "sessions",
+                    "delete",
+                    ""
+                  ],
+                  "query": [
+                    {
+                      "key": "chatbot_slug",
+                      "value": "{{chatbot_slug}}"
+                    },
+                    {
+                      "key": "session_id",
+                      "value": "{{session_id}}"
+                    }
+                  ]
+                }
+              },
+              "response": []
+            }
+          ]
+        },
+        {
+          "name": "Messages",
+          "description": null,
+          "item": [
+            {
+              "name": "List Messages",
+              "request": {
+                "method": "GET",
+                "description": "Paginated messages of a session.\n\n**Query**: `chatbot_slug`, `session_id`, `page`, `page_size`.\n\n**200** → `data`: `{id, chat_session_id, sender_type (visitor|ai|agent|system), sender {id, name, email, avatar_url}|null, content, status (sent|delivered|read|failed), external_id, metadata, attachments [{id, attachment_type, file_url, file_name, mime_type, file_size, duration_ms, sort_order, created_at}], created_at, updated_at}`.",
+                "url": {
+                  "raw": "{{base_url}}/api/v1/chat/messages/list/?chatbot_slug={{chatbot_slug}}&session_id={{session_id}}&page=1&page_size=20",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "chat",
+                    "messages",
+                    "list",
+                    ""
+                  ],
+                  "query": [
+                    {
+                      "key": "chatbot_slug",
+                      "value": "{{chatbot_slug}}"
+                    },
+                    {
+                      "key": "session_id",
+                      "value": "{{session_id}}"
+                    },
+                    {
+                      "key": "page",
+                      "value": "1"
+                    },
+                    {
+                      "key": "page_size",
+                      "value": "20"
+                    }
+                  ]
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Send Agent Message",
+              "request": {
+                "method": "POST",
+                "description": "Send a message as the logged-in agent.\n\n**Query**: `chatbot_slug`, `session_id`.\n\n**Body**: `content` (≤10000, required), `metadata` (JSON, optional).\n\n**201** → `data`: created message.",
+                "url": {
+                  "raw": "{{base_url}}/api/v1/chat/messages/send/?chatbot_slug={{chatbot_slug}}&session_id={{session_id}}",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "chat",
+                    "messages",
+                    "send",
+                    ""
+                  ],
+                  "query": [
+                    {
+                      "key": "chatbot_slug",
+                      "value": "{{chatbot_slug}}"
+                    },
+                    {
+                      "key": "session_id",
+                      "value": "{{session_id}}"
+                    }
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"content\": \"Thanks, an agent will continue here.\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": []
+            }
+          ]
+        },
+        {
+          "name": "Takeovers",
+          "description": "Human takeover lifecycle: an agent takes over an AI session, releases it, resolves/closes, or reopens.",
+          "item": [
+            {
+              "name": "Take Over Session",
+              "request": {
+                "method": "POST",
+                "description": "Take over the session from the AI.\n\n**Query**: `chatbot_slug`, `session_id`.\n\n**201** → `data`: takeover object `{id, chat_session_id, agent {...}, released_at, release_reason (transferred|resolved|closed|released|forced_takeover|forced_release), released_to, resolution_note, reopened_at, created_at, updated_at}`.",
+                "url": {
+                  "raw": "{{base_url}}/api/v1/chat/takeovers/take-over/?chatbot_slug={{chatbot_slug}}&session_id={{session_id}}",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "chat",
+                    "takeovers",
+                    "take-over",
+                    ""
+                  ],
+                  "query": [
+                    {
+                      "key": "chatbot_slug",
+                      "value": "{{chatbot_slug}}"
+                    },
+                    {
+                      "key": "session_id",
+                      "value": "{{session_id}}"
+                    }
+                  ]
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Force Take Over Session",
+              "request": {
+                "method": "POST",
+                "description": "Force-take a session owned by another agent: releases their takeover, cancels any pending transfer, and assigns the session to you with AI disabled. Requires chat-session management permission.\n\n**Query**: `chatbot_slug`, `session_id`.\n\n**Body**: `reason` (required, non-blank, ≤256).\n\n**201** → `data`: takeover object `{id, chat_session_id, agent {...}, is_forced: true, takeover_reason, released_at, release_reason, released_to, resolution_note, reopened_at, created_at, updated_at}`.",
+                "url": {
+                  "raw": "{{base_url}}/api/v1/chat/takeovers/force-takeover/?chatbot_slug={{chatbot_slug}}&session_id={{session_id}}",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "chat",
+                    "takeovers",
+                    "force-takeover",
+                    ""
+                  ],
+                  "query": [
+                    {
+                      "key": "chatbot_slug",
+                      "value": "{{chatbot_slug}}"
+                    },
+                    {
+                      "key": "session_id",
+                      "value": "{{session_id}}"
+                    }
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"reason\": \"The current owner is unavailable\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Release Session",
+              "request": {
+                "method": "POST",
+                "description": "Release the session back to the AI.\n\n**Query**: `chatbot_slug`, `session_id`.",
+                "url": {
+                  "raw": "{{base_url}}/api/v1/chat/takeovers/release/?chatbot_slug={{chatbot_slug}}&session_id={{session_id}}",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "chat",
+                    "takeovers",
+                    "release",
+                    ""
+                  ],
+                  "query": [
+                    {
+                      "key": "chatbot_slug",
+                      "value": "{{chatbot_slug}}"
+                    },
+                    {
+                      "key": "session_id",
+                      "value": "{{session_id}}"
+                    }
+                  ]
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Force Return Session to AI",
+              "request": {
+                "method": "POST",
+                "description": "Force-release another agent's active takeover and return the open session to AI. Requires chat-session management permission.\n\n**Query**: `chatbot_slug`, `session_id`.\n\n**Body**: `note` (required, non-blank, ≤5000).",
+                "url": {
+                  "raw": "{{base_url}}/api/v1/chat/takeovers/force-return-to-ai/?chatbot_slug={{chatbot_slug}}&session_id={{session_id}}",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "chat",
+                    "takeovers",
+                    "force-return-to-ai",
+                    ""
+                  ],
+                  "query": [
+                    {
+                      "key": "chatbot_slug",
+                      "value": "{{chatbot_slug}}"
+                    },
+                    {
+                      "key": "session_id",
+                      "value": "{{session_id}}"
+                    }
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"note\": \"The visitor returned while the assigned agent was unavailable.\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Resolve / Close Session",
+              "request": {
+                "method": "POST",
+                "description": "Resolve or close the session.\n\n**Query**: `chatbot_slug`, `session_id`.\n\n**Body**: `resolution_type` (`resolved` | `closed`, required), `note` (≤5000, optional).",
+                "url": {
+                  "raw": "{{base_url}}/api/v1/chat/takeovers/resolve/?chatbot_slug={{chatbot_slug}}&session_id={{session_id}}",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "chat",
+                    "takeovers",
+                    "resolve",
+                    ""
+                  ],
+                  "query": [
+                    {
+                      "key": "chatbot_slug",
+                      "value": "{{chatbot_slug}}"
+                    },
+                    {
+                      "key": "session_id",
+                      "value": "{{session_id}}"
+                    }
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"resolution_type\": \"resolved\",\n  \"note\": \"Issue fixed\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Reopen Session",
+              "request": {
+                "method": "POST",
+                "description": "Reopen a resolved/closed session.\n\n**Query**: `chatbot_slug`, `session_id`.",
+                "url": {
+                  "raw": "{{base_url}}/api/v1/chat/takeovers/reopen/?chatbot_slug={{chatbot_slug}}&session_id={{session_id}}",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "chat",
+                    "takeovers",
+                    "reopen",
+                    ""
+                  ],
+                  "query": [
+                    {
+                      "key": "chatbot_slug",
+                      "value": "{{chatbot_slug}}"
+                    },
+                    {
+                      "key": "session_id",
+                      "value": "{{session_id}}"
+                    }
+                  ]
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Force Resolve Session",
+              "request": {
+                "method": "POST",
+                "description": "Resolve a session that requires human attention without owning it: clears the attention flags, releases the active takeover (if any) as `forced_resolve`, and returns the open session to AI. Requires chat-session management permission.\n\n**Query**: `chatbot_slug`, `session_id`.\n\n**Body**: `note` (≤5000, optional).\n\n**200** → `data`: `{chat_session_id, takeover {...}|null}`.",
+                "url": {
+                  "raw": "{{base_url}}/api/v1/chat/takeovers/force-resolve/?chatbot_slug={{chatbot_slug}}&session_id={{session_id}}",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "chat",
+                    "takeovers",
+                    "force-resolve",
+                    ""
+                  ],
+                  "query": [
+                    {
+                      "key": "chatbot_slug",
+                      "value": "{{chatbot_slug}}"
+                    },
+                    {
+                      "key": "session_id",
+                      "value": "{{session_id}}"
+                    }
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"note\": \"Handled by the on-call supervisor\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": []
+            }
+          ]
+        },
+        {
+          "name": "Transfers",
+          "description": "Agent-to-agent session transfers.",
+          "item": [
+            {
+              "name": "Request Transfer",
+              "request": {
+                "method": "POST",
+                "description": "Transfer a session to another agent (must be an active member of the same chatbot).\n\n**Query**: `chatbot_slug`, `session_id`.\n\n**Body**: `to_agent_id` (uuid, required), `reason` (≤5000, optional), `expires_at` (datetime, optional).\n\n**201** → `data`: transfer `{id, chat_session_id, from_agent, to_agent, status (pending|accepted|declined|cancelled|expired), reason, completed_at, expires_at, ...}`.",
+                "url": {
+                  "raw": "{{base_url}}/api/v1/chat/transfers/request/?chatbot_slug={{chatbot_slug}}&session_id={{session_id}}",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "chat",
+                    "transfers",
+                    "request",
+                    ""
+                  ],
+                  "query": [
+                    {
+                      "key": "chatbot_slug",
+                      "value": "{{chatbot_slug}}"
+                    },
+                    {
+                      "key": "session_id",
+                      "value": "{{session_id}}"
+                    }
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"to_agent_id\": \"<agent-uuid>\",\n  \"reason\": \"Shifting handover\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Incoming Transfers",
+              "request": {
+                "method": "GET",
+                "description": "Transfers addressed to the caller (expired pending ones are lazily expired first).\n\n**Query**: `chatbot_slug` (required), `status` (`pending|accepted|declined|cancelled|expired`, optional), `page`, `page_size`.",
+                "url": {
+                  "raw": "{{base_url}}/api/v1/chat/transfers/incoming/?chatbot_slug={{chatbot_slug}}&status=pending&page=1&page_size=20",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "chat",
+                    "transfers",
+                    "incoming",
+                    ""
+                  ],
+                  "query": [
+                    {
+                      "key": "chatbot_slug",
+                      "value": "{{chatbot_slug}}"
+                    },
+                    {
+                      "key": "status",
+                      "value": "pending"
+                    },
+                    {
+                      "key": "page",
+                      "value": "1"
+                    },
+                    {
+                      "key": "page_size",
+                      "value": "20"
+                    }
+                  ]
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Accept Transfer",
+              "request": {
+                "method": "POST",
+                "description": "Accept an incoming transfer.\n\n**Query**: `chatbot_slug`, `transfer_id` (both required).",
+                "url": {
+                  "raw": "{{base_url}}/api/v1/chat/transfers/accept/?chatbot_slug={{chatbot_slug}}&transfer_id=<transfer-uuid>",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "chat",
+                    "transfers",
+                    "accept",
+                    ""
+                  ],
+                  "query": [
+                    {
+                      "key": "chatbot_slug",
+                      "value": "{{chatbot_slug}}"
+                    },
+                    {
+                      "key": "transfer_id",
+                      "value": "<transfer-uuid>"
+                    }
+                  ]
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Decline Transfer",
+              "request": {
+                "method": "POST",
+                "description": "Decline an incoming transfer.\n\n**Query**: `chatbot_slug`, `transfer_id`.",
+                "url": {
+                  "raw": "{{base_url}}/api/v1/chat/transfers/decline/?chatbot_slug={{chatbot_slug}}&transfer_id=<transfer-uuid>",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "chat",
+                    "transfers",
+                    "decline",
+                    ""
+                  ],
+                  "query": [
+                    {
+                      "key": "chatbot_slug",
+                      "value": "{{chatbot_slug}}"
+                    },
+                    {
+                      "key": "transfer_id",
+                      "value": "<transfer-uuid>"
+                    }
+                  ]
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Cancel Transfer",
+              "request": {
+                "method": "POST",
+                "description": "Cancel a transfer you requested.\n\n**Query**: `chatbot_slug`, `transfer_id`.",
+                "url": {
+                  "raw": "{{base_url}}/api/v1/chat/transfers/cancel/?chatbot_slug={{chatbot_slug}}&transfer_id=<transfer-uuid>",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "chat",
+                    "transfers",
+                    "cancel",
+                    ""
+                  ],
+                  "query": [
+                    {
+                      "key": "chatbot_slug",
+                      "value": "{{chatbot_slug}}"
+                    },
+                    {
+                      "key": "transfer_id",
+                      "value": "<transfer-uuid>"
+                    }
+                  ]
+                }
+              },
+              "response": []
+            }
+          ]
+        },
+        {
+          "name": "Analytics",
+          "description": null,
+          "item": [
+            {
+              "name": "Session Stats",
+              "request": {
+                "method": "GET",
+                "description": "Totals for the chatbot.\n\n**Query**: `chatbot_slug` (required).\n\n**200** → `data`: `{total_sessions, total_messages, sessions_last_30_days, messages_last_30_days, session_percentage_change, message_percentage_change}` (change vs previous 30-day window).",
+                "url": {
+                  "raw": "{{base_url}}/api/v1/chat/analytics/stats/?chatbot_slug={{chatbot_slug}}",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "chat",
+                    "analytics",
+                    "stats",
+                    ""
+                  ],
+                  "query": [
+                    {
+                      "key": "chatbot_slug",
+                      "value": "{{chatbot_slug}}"
+                    }
+                  ]
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Session Overview",
+              "request": {
+                "method": "GET",
+                "description": "Daily session counts over a date range (zero-filled continuous series; default last 14 days).\n\n**Query**: `chatbot_slug` (required), `start_date` (`YYYY-MM-DD`, optional), `end_date` (optional; start > end → 400).",
+                "url": {
+                  "raw": "{{base_url}}/api/v1/chat/analytics/overview/?chatbot_slug={{chatbot_slug}}&start_date=2026-09-01&end_date=2026-09-14",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "chat",
+                    "analytics",
+                    "overview",
+                    ""
+                  ],
+                  "query": [
+                    {
+                      "key": "chatbot_slug",
+                      "value": "{{chatbot_slug}}"
+                    },
+                    {
+                      "key": "start_date",
+                      "value": "2026-09-01",
+                      "description": "Optional"
+                    },
+                    {
+                      "key": "end_date",
+                      "value": "2026-09-14",
+                      "description": "Optional"
+                    }
+                  ]
+                }
+              },
+              "response": []
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Knowledge",
+      "description": "Knowledge source ingestion, retrieval, and asynchronous training. Base path: `/api/v1/knowledge/`. Most endpoints use the **`chatbot`** query param (slug); search accepts `chatbotSlug` in its JSON body. Upload/update/search require the `setup_configuration` permission; delete requires chatbot/workspace admin. Training runs asynchronously — poll `training-logs/` or the `status` field (`pending|processing|ready|failed`).",
+      "item": [
+        {
+          "name": "Upload Knowledge",
+          "request": {
+            "method": "POST",
+            "description": "Add a knowledge source. **Query**: `chatbot` (slug, required), `type` (`file` | `url` | `custom`, required).\n\n- `type=file` → **multipart/form-data** with `file` (allowed: pdf, docx, xlsx, csv, xml, json; size/entitlement limits) and optional `title`.\n- `type=url` → JSON: `url` (public http/https, DNS-resolvable, non-private IP), `title`.\n- `type=custom` → JSON: `content` (text, word-count limited), `title`.\n\n**201** → `data: {knowledge_base, training}`. **403** if the plan lacks the knowledge feature.\n\n(Switch the body mode in Postman for the `file` variant.)",
+            "url": {
+              "raw": "{{base_url}}/api/v1/knowledge/upload/?chatbot={{chatbot_slug}}&type=custom",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "knowledge",
+                "upload",
+                ""
+              ],
+              "query": [
+                {
+                  "key": "chatbot",
+                  "value": "{{chatbot_slug}}",
+                  "description": "Required"
+                },
+                {
+                  "key": "type",
+                  "value": "custom",
+                  "description": "file | url | custom"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"content\": \"Acme offers 24/7 support. Refunds within 30 days.\",\n  \"title\": \"Support policy\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Upload Knowledge (File)",
+          "request": {
+            "method": "POST",
+            "description": "File upload variant — uses `multipart/form-data`.\n\n**Query**: `chatbot` (slug), `type=file`.\n\n**Form fields**: `file` (pdf, docx, xlsx, csv, xml, or json), `title` (optional).",
+            "url": {
+              "raw": "{{base_url}}/api/v1/knowledge/upload/?chatbot={{chatbot_slug}}&type=file",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "knowledge",
+                "upload",
+                ""
+              ],
+              "query": [
+                {
+                  "key": "chatbot",
+                  "value": "{{chatbot_slug}}",
+                  "description": "Required"
+                },
+                {
+                  "key": "type",
+                  "value": "file",
+                  "description": "Must be file"
+                }
+              ]
+            },
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": [],
+                  "description": "Required — pdf, docx, xlsx, csv, xml, json"
+                },
+                {
+                  "key": "title",
+                  "type": "text",
+                  "value": "Product handbook",
+                  "description": "Optional"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "List Knowledge",
+          "request": {
+            "method": "GET",
+            "description": "Paginated knowledge sources for a chatbot (newest first).\n\n**Query**: `chatbot` (required), `page`, `page_size`.\n\n**200** → `data`: `{id, name, url, source_type (file|website|text), file_type, file_size, is_enabled, status (pending|processing|ready|failed), last_crawled_at, processed_at, created_at, updated_at}`.",
+            "url": {
+              "raw": "{{base_url}}/api/v1/knowledge/list/?chatbot={{chatbot_slug}}&page=1&page_size=20",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "knowledge",
+                "list",
+                ""
+              ],
+              "query": [
+                {
+                  "key": "chatbot",
+                  "value": "{{chatbot_slug}}"
+                },
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "page_size",
+                  "value": "20"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Search Knowledge",
+          "request": {
+            "method": "POST",
+            "description": "Return up to 10 ranked retrieval chunks from enabled knowledge sources belonging to the requested chatbot. This endpoint performs hybrid vector/full-text retrieval only and does not call an LLM.\n\n**JSON body**: `chatbotSlug` (required), `query` (required, non-blank, max 2,000 characters).",
+            "url": {
+              "raw": "{{base_url}}/api/v1/knowledge/search/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "knowledge",
+                "search",
+                ""
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"chatbotSlug\": \"{{chatbot_slug}}\",\n  \"query\": \"What is the refund policy?\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Knowledge Usage",
+          "request": {
+            "method": "GET",
+            "description": "Entitlement usage for the chatbot.\n\n**Query**: `chatbot` (required).\n\n**200** → `data: {total_chunks, chunk_limit, total_file_size_bytes, file_size_limit_bytes, file_size_limit_mb}`.",
+            "url": {
+              "raw": "{{base_url}}/api/v1/knowledge/usage/?chatbot={{chatbot_slug}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "knowledge",
+                "usage",
+                ""
+              ],
+              "query": [
+                {
+                  "key": "chatbot",
+                  "value": "{{chatbot_slug}}"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Knowledge Details",
+          "request": {
+            "method": "GET",
+            "description": "Full knowledge-source record incl. signed `file_url` (private R2 link) and latest training log.\n\n**Query**: `knowledge_base_id` (uuid, required — no `chatbot` param needed).",
+            "url": {
+              "raw": "{{base_url}}/api/v1/knowledge/details/?knowledge_base_id=<knowledge-base-uuid>",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "knowledge",
+                "details",
+                ""
+              ],
+              "query": [
+                {
+                  "key": "knowledge_base_id",
+                  "value": "<knowledge-base-uuid>",
+                  "description": "Required"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Update Knowledge",
+          "request": {
+            "method": "PATCH",
+            "description": "Update a knowledge source; metadata-only or retrain. Supports PUT and PATCH.\n\n**Query**: `knowledge_base_id` (uuid, required), `type` (`file|url|custom`, must match the source's type).\n\n**Body**: `title`, `is_enabled`; for `custom` also `content` (triggers retraining; 409 if training active). Empty body: `url` sources always re-crawl; `file` sources retrain only when status is `failed`.\n\n**200** (metadata) → `data`: knowledge object; **202** → `data: {knowledge_base, training}` when retraining is queued.",
+            "url": {
+              "raw": "{{base_url}}/api/v1/knowledge/update/?knowledge_base_id=<knowledge-base-uuid>&type=custom",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "knowledge",
+                "update",
+                ""
+              ],
+              "query": [
+                {
+                  "key": "knowledge_base_id",
+                  "value": "<knowledge-base-uuid>"
+                },
+                {
+                  "key": "type",
+                  "value": "custom",
+                  "description": "Must match the source type"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Updated title\",\n  \"is_enabled\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Delete Knowledge",
+          "request": {
+            "method": "DELETE",
+            "description": "Delete a knowledge source. Requires chatbot admin or workspace admin. **409** while a training job is active.\n\n**Query**: `knowledge_base_id` (uuid, required).",
+            "url": {
+              "raw": "{{base_url}}/api/v1/knowledge/delete/?knowledge_base_id=<knowledge-base-uuid>",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "knowledge",
+                "delete",
+                ""
+              ],
+              "query": [
+                {
+                  "key": "knowledge_base_id",
+                  "value": "<knowledge-base-uuid>"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Training Logs",
+          "request": {
+            "method": "GET",
+            "description": "Paginated training jobs for a chatbot (newest first).\n\n**Query**: `chatbot` (required), `page`, `page_size`.\n\n**200** → `data`: `{id, knowledge_base_id, celery_task_id, stage (queued|extracting|chunking|embedding|indexing|...), progress, total_chunks, processed_chunks, force_retrain, content_changed, message, error_message, started_at, completed_at, ...}`.",
+            "url": {
+              "raw": "{{base_url}}/api/v1/knowledge/training-logs/?chatbot={{chatbot_slug}}&page=1&page_size=20",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "knowledge",
+                "training-logs",
+                ""
+              ],
+              "query": [
+                {
+                  "key": "chatbot",
+                  "value": "{{chatbot_slug}}"
+                },
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "page_size",
+                  "value": "20"
+                }
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Lead Capture",
+      "description": "Configurable in-chat lead collection, lead management, and lead notes. Base path: `/api/v1/lead-captures/`. Uses the **`chatbot_slug`** query param. Config endpoints require `setup_configuration`; lead/note endpoints require `lead_management`. The chatbot's plan must include the lead capture feature (else 403).",
+      "item": [
+        {
+          "name": "Config",
+          "description": null,
+          "item": [
+            {
+              "name": "Get Lead Config",
+              "request": {
+                "method": "GET",
+                "description": "Lead capture configuration. **404** if none exists yet.\n\n**Query**: `chatbot_slug` (required).\n\n**200** → `data`: `{id, chatbot_id, is_enabled, collectable_fields (array of {label, value, mode, type}), auto_collect, require_consent, consent_message, created_at, updated_at}`.",
+                "url": {
+                  "raw": "{{base_url}}/api/v1/lead-captures/config/?chatbot_slug={{chatbot_slug}}",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "lead-captures",
+                    "config",
+                    ""
+                  ],
+                  "query": [
+                    {
+                      "key": "chatbot_slug",
+                      "value": "{{chatbot_slug}}",
+                      "description": "Required"
+                    }
+                  ]
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Create Lead Config",
+              "request": {
+                "method": "POST",
+                "description": "Create the lead capture config. **409** if one already exists.\n\n**Query**: `chatbot_slug`.\n\n**Body**: `is_enabled` (bool), `collectable_fields` (array), `auto_collect` (bool), `require_consent` (bool), `consent_message` — all optional.",
+                "url": {
+                  "raw": "{{base_url}}/api/v1/lead-captures/config/create/?chatbot_slug={{chatbot_slug}}",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "lead-captures",
+                    "config",
+                    "create",
+                    ""
+                  ],
+                  "query": [
+                    {
+                      "key": "chatbot_slug",
+                      "value": "{{chatbot_slug}}"
+                    }
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"is_enabled\": true,\n  \"auto_collect\": false,\n  \"require_consent\": true,\n  \"consent_message\": \"We'll save your details to contact you.\",\n  \"collectable_fields\": [\n    {\n      \"label\": \"Full name\",\n      \"value\": \"name\",\n      \"mode\": \"ask\",\n      \"type\": \"text\"\n    },\n    {\n      \"label\": \"Email\",\n      \"value\": \"email\",\n      \"mode\": \"ask\",\n      \"type\": \"email\"\n    }\n  ]\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Update Lead Config",
+              "request": {
+                "method": "PATCH",
+                "description": "Update the lead capture config. Supports PUT and PATCH.\n\n**Query**: `chatbot_slug`.\n\n**Body**: same writable fields as create.",
+                "url": {
+                  "raw": "{{base_url}}/api/v1/lead-captures/config/update/?chatbot_slug={{chatbot_slug}}",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "lead-captures",
+                    "config",
+                    "update",
+                    ""
+                  ],
+                  "query": [
+                    {
+                      "key": "chatbot_slug",
+                      "value": "{{chatbot_slug}}"
+                    }
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"is_enabled\": true,\n  \"auto_collect\": true\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": []
+            }
+          ]
+        },
+        {
+          "name": "Leads",
+          "description": null,
+          "item": [
+            {
+              "name": "List Leads",
+              "request": {
+                "method": "GET",
+                "description": "Paginated leads.\n\n**Query**: `chatbot_slug` (required), `page`, `page_size`.\n\n**200** → `data`: `{id, chatbot_id, collected_fields (JSON), initial_ip_address, last_ip_address, detected_country_code, detected_city, status (new|qualified|contacted|converted|disqualified), lead_score (0-100|null), source, notes_count, created_at, updated_at}`.",
+                "url": {
+                  "raw": "{{base_url}}/api/v1/lead-captures/leads/list/?chatbot_slug={{chatbot_slug}}&page=1&page_size=20",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "lead-captures",
+                    "leads",
+                    "list",
+                    ""
+                  ],
+                  "query": [
+                    {
+                      "key": "chatbot_slug",
+                      "value": "{{chatbot_slug}}"
+                    },
+                    {
+                      "key": "page",
+                      "value": "1"
+                    },
+                    {
+                      "key": "page_size",
+                      "value": "20"
+                    }
+                  ]
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Export Leads",
+              "request": {
+                "method": "GET",
+                "description": "Download up to 1,000 newest leads as CSV or Excel. Collected fields are flattened into columns. Without dates, all available leads are considered.\n\n**Query**: `chatbot_slug` and `file_format` (`csv`, `xlsx`, or `excel`) are required. `start_date` and `end_date` are optional inclusive dates in `YYYY-MM-DD` format.",
+                "url": {
+                  "raw": "{{base_url}}/api/v1/lead-captures/leads/export/?chatbot_slug={{chatbot_slug}}&file_format=csv",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "lead-captures",
+                    "leads",
+                    "export",
+                    ""
+                  ],
+                  "query": [
+                    {
+                      "key": "chatbot_slug",
+                      "value": "{{chatbot_slug}}"
+                    },
+                    {
+                      "key": "file_format",
+                      "value": "csv"
+                    }
+                  ]
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Lead Details",
+              "request": {
+                "method": "GET",
+                "description": "Single lead.\n\n**Query**: `chatbot_slug`, `lead_id` (both required).",
+                "url": {
+                  "raw": "{{base_url}}/api/v1/lead-captures/leads/details/?chatbot_slug={{chatbot_slug}}&lead_id=<lead-uuid>",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "lead-captures",
+                    "leads",
+                    "details",
+                    ""
+                  ],
+                  "query": [
+                    {
+                      "key": "chatbot_slug",
+                      "value": "{{chatbot_slug}}"
+                    },
+                    {
+                      "key": "lead_id",
+                      "value": "<lead-uuid>"
+                    }
+                  ]
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Update Lead",
+              "request": {
+                "method": "PATCH",
+                "description": "Update lead attributes. Supports PUT and PATCH.\n\n**Query**: `chatbot_slug`, `lead_id`.\n\n**Body**: `collected_fields` (JSON), `status` (choice), `lead_score` (int ≤100), `source`.",
+                "url": {
+                  "raw": "{{base_url}}/api/v1/lead-captures/leads/update/?chatbot_slug={{chatbot_slug}}&lead_id=<lead-uuid>",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "lead-captures",
+                    "leads",
+                    "update",
+                    ""
+                  ],
+                  "query": [
+                    {
+                      "key": "chatbot_slug",
+                      "value": "{{chatbot_slug}}"
+                    },
+                    {
+                      "key": "lead_id",
+                      "value": "<lead-uuid>"
+                    }
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"status\": \"contacted\",\n  \"lead_score\": 75\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": []
+            }
+          ]
+        },
+        {
+          "name": "Lead Notes",
+          "description": null,
+          "item": [
+            {
+              "name": "List Notes",
+              "request": {
+                "method": "GET",
+                "description": "Paginated notes for a lead.\n\n**Query**: `chatbot_slug`, `lead_id`, `page`, `page_size`.\n\n**200** → `data`: `{id, lead_id, author {id, name, email}, content, created_at, updated_at}`.",
+                "url": {
+                  "raw": "{{base_url}}/api/v1/lead-captures/notes/list/?chatbot_slug={{chatbot_slug}}&lead_id=<lead-uuid>&page=1&page_size=20",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "lead-captures",
+                    "notes",
+                    "list",
+                    ""
+                  ],
+                  "query": [
+                    {
+                      "key": "chatbot_slug",
+                      "value": "{{chatbot_slug}}"
+                    },
+                    {
+                      "key": "lead_id",
+                      "value": "<lead-uuid>"
+                    },
+                    {
+                      "key": "page",
+                      "value": "1"
+                    },
+                    {
+                      "key": "page_size",
+                      "value": "20"
+                    }
+                  ]
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Create Note",
+              "request": {
+                "method": "POST",
+                "description": "Add a note to a lead.\n\n**Query**: `chatbot_slug`, `lead_id`.\n\n**Body**: `content` (non-empty, required).",
+                "url": {
+                  "raw": "{{base_url}}/api/v1/lead-captures/notes/create/?chatbot_slug={{chatbot_slug}}&lead_id=<lead-uuid>",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "lead-captures",
+                    "notes",
+                    "create",
+                    ""
+                  ],
+                  "query": [
+                    {
+                      "key": "chatbot_slug",
+                      "value": "{{chatbot_slug}}"
+                    },
+                    {
+                      "key": "lead_id",
+                      "value": "<lead-uuid>"
+                    }
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"content\": \"Called back, interested in the Pro plan.\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Note Details",
+              "request": {
+                "method": "GET",
+                "description": "Single note.\n\n**Query**: `chatbot_slug`, `lead_id`, `note_id` (all required).",
+                "url": {
+                  "raw": "{{base_url}}/api/v1/lead-captures/notes/details/?chatbot_slug={{chatbot_slug}}&lead_id=<lead-uuid>&note_id=<note-uuid>",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "lead-captures",
+                    "notes",
+                    "details",
+                    ""
+                  ],
+                  "query": [
+                    {
+                      "key": "chatbot_slug",
+                      "value": "{{chatbot_slug}}"
+                    },
+                    {
+                      "key": "lead_id",
+                      "value": "<lead-uuid>"
+                    },
+                    {
+                      "key": "note_id",
+                      "value": "<note-uuid>"
+                    }
+                  ]
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Update Note",
+              "request": {
+                "method": "PATCH",
+                "description": "Update a note. Supports PUT and PATCH.\n\n**Query**: `chatbot_slug`, `lead_id`, `note_id`.\n\n**Body**: `content`.",
+                "url": {
+                  "raw": "{{base_url}}/api/v1/lead-captures/notes/update/?chatbot_slug={{chatbot_slug}}&lead_id=<lead-uuid>&note_id=<note-uuid>",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "lead-captures",
+                    "notes",
+                    "update",
+                    ""
+                  ],
+                  "query": [
+                    {
+                      "key": "chatbot_slug",
+                      "value": "{{chatbot_slug}}"
+                    },
+                    {
+                      "key": "lead_id",
+                      "value": "<lead-uuid>"
+                    },
+                    {
+                      "key": "note_id",
+                      "value": "<note-uuid>"
+                    }
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"content\": \"Updated note text.\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Delete Note",
+              "request": {
+                "method": "DELETE",
+                "description": "Delete a note.\n\n**Query**: `chatbot_slug`, `lead_id`, `note_id`.\n\n**200** → `data: {id}`.",
+                "url": {
+                  "raw": "{{base_url}}/api/v1/lead-captures/notes/delete/?chatbot_slug={{chatbot_slug}}&lead_id=<lead-uuid>&note_id=<note-uuid>",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "lead-captures",
+                    "notes",
+                    "delete",
+                    ""
+                  ],
+                  "query": [
+                    {
+                      "key": "chatbot_slug",
+                      "value": "{{chatbot_slug}}"
+                    },
+                    {
+                      "key": "lead_id",
+                      "value": "<lead-uuid>"
+                    },
+                    {
+                      "key": "note_id",
+                      "value": "<note-uuid>"
+                    }
+                  ]
+                }
+              },
+              "response": []
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Appointment Booking",
+      "description": "Booking configuration, weekly availability schedules, and appointment management. Base path: `/api/v1/appointment-bookings/`. Uses the **`chatbot_slug`** query param. Config/schedule endpoints require `setup_configuration`; appointment endpoints require `appointment_management`. The config is auto-created on first access.",
+      "item": [
+        {
+          "name": "Config",
+          "description": null,
+          "item": [
+            {
+              "name": "Get Booking Config",
+              "request": {
+                "method": "GET",
+                "description": "Booking configuration (auto-created on first access).\n\n**Query**: `chatbot_slug` (required).\n\n**200** → `data`: `{id, chatbot_id, is_enabled, collectable_fields, appointment_duration_minutes, maximum_advance_days, max_appointments_per_day|null, confirmation_message, created_at, updated_at}`.",
+                "url": {
+                  "raw": "{{base_url}}/api/v1/appointment-bookings/config/?chatbot_slug={{chatbot_slug}}",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "appointment-bookings",
+                    "config",
+                    ""
+                  ],
+                  "query": [
+                    {
+                      "key": "chatbot_slug",
+                      "value": "{{chatbot_slug}}",
+                      "description": "Required"
+                    }
+                  ]
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Update Booking Config",
+              "request": {
+                "method": "PATCH",
+                "description": "Update booking configuration. Supports PUT and PATCH.\n\n**Query**: `chatbot_slug`.\n\n**Body**: `is_enabled`, `collectable_fields`, `appointment_duration_minutes`, `maximum_advance_days`, `max_appointments_per_day`, `confirmation_message`.",
+                "url": {
+                  "raw": "{{base_url}}/api/v1/appointment-bookings/config/update/?chatbot_slug={{chatbot_slug}}",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "appointment-bookings",
+                    "config",
+                    "update",
+                    ""
+                  ],
+                  "query": [
+                    {
+                      "key": "chatbot_slug",
+                      "value": "{{chatbot_slug}}"
+                    }
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"is_enabled\": true,\n  \"appointment_duration_minutes\": 30,\n  \"maximum_advance_days\": 60,\n  \"confirmation_message\": \"Your booking is confirmed.\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": []
+            }
+          ]
+        },
+        {
+          "name": "Schedules",
+          "description": "Weekly recurring availability and closed dates.",
+          "item": [
+            {
+              "name": "Get Schedules",
+              "request": {
+                "method": "GET",
+                "description": "Weekly availability and closed dates.\n\n**Query**: `chatbot_slug` (required).\n\n**200** → `data`: `{schedules: [{id, weekday (0=Mon..6=Sun), is_active, slots: [{id, start_time, end_time, is_active}]}], closed_dates: [{id, date, label, is_active}]}`.",
+                "url": {
+                  "raw": "{{base_url}}/api/v1/appointment-bookings/schedules/?chatbot_slug={{chatbot_slug}}",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "appointment-bookings",
+                    "schedules",
+                    ""
+                  ],
+                  "query": [
+                    {
+                      "key": "chatbot_slug",
+                      "value": "{{chatbot_slug}}",
+                      "description": "Required"
+                    }
+                  ]
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Update Schedules",
+              "request": {
+                "method": "PATCH",
+                "description": "Replace weekly schedules and/or closed dates. Supports PUT and PATCH. Validations: unique weekday, non-overlapping active slots, unique dates.\n\n**Query**: `chatbot_slug`.\n\n**Body**: `schedules` (list of `{weekday, is_active?, slots: [{start_time, end_time, is_active?}]}`), `closed_dates` (list of `{date, label?, is_active?}`).",
+                "url": {
+                  "raw": "{{base_url}}/api/v1/appointment-bookings/schedules/update/?chatbot_slug={{chatbot_slug}}",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "appointment-bookings",
+                    "schedules",
+                    "update",
+                    ""
+                  ],
+                  "query": [
+                    {
+                      "key": "chatbot_slug",
+                      "value": "{{chatbot_slug}}"
+                    }
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"schedules\": [\n    {\n      \"weekday\": 0,\n      \"is_active\": true,\n      \"slots\": [\n        {\n          \"start_time\": \"09:00:00\",\n          \"end_time\": \"13:00:00\"\n        },\n        {\n          \"start_time\": \"14:00:00\",\n          \"end_time\": \"17:00:00\"\n        }\n      ]\n    },\n    {\n      \"weekday\": 1,\n      \"is_active\": true,\n      \"slots\": [\n        {\n          \"start_time\": \"09:00:00\",\n          \"end_time\": \"17:00:00\"\n        }\n      ]\n    }\n  ],\n  \"closed_dates\": [\n    {\n      \"date\": \"2026-12-25\",\n      \"label\": \"Christmas\"\n    }\n  ]\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": []
+            }
+          ]
+        },
+        {
+          "name": "Appointments",
+          "description": null,
+          "item": [
+            {
+              "name": "List Appointments",
+              "request": {
+                "method": "GET",
+                "description": "Paginated appointments.\n\n**Query**: `chatbot_slug` (required), `page`, `page_size`.\n\n**200** → `data`: `{id, chatbot_id, collected_fields, metadata, starts_at, ends_at, status (pending|confirmed|completed|cancelled|no_show), notes, cancellation_reason, created_at, updated_at}`.",
+                "url": {
+                  "raw": "{{base_url}}/api/v1/appointment-bookings/appointments/list/?chatbot_slug={{chatbot_slug}}&page=1&page_size=20",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "appointment-bookings",
+                    "appointments",
+                    "list",
+                    ""
+                  ],
+                  "query": [
+                    {
+                      "key": "chatbot_slug",
+                      "value": "{{chatbot_slug}}"
+                    },
+                    {
+                      "key": "page",
+                      "value": "1"
+                    },
+                    {
+                      "key": "page_size",
+                      "value": "20"
+                    }
+                  ]
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Update Appointment",
+              "request": {
+                "method": "PATCH",
+                "description": "Update an appointment. Supports PUT and PATCH.\n\n**Query**: `chatbot_slug`, `appointment_id`.\n\n**Body**: `collected_fields`, `metadata`, `starts_at`, `ends_at`, `status`, `notes`, `cancellation_reason`.",
+                "url": {
+                  "raw": "{{base_url}}/api/v1/appointment-bookings/appointments/update/?chatbot_slug={{chatbot_slug}}&appointment_id=<appointment-uuid>",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "appointment-bookings",
+                    "appointments",
+                    "update",
+                    ""
+                  ],
+                  "query": [
+                    {
+                      "key": "chatbot_slug",
+                      "value": "{{chatbot_slug}}"
+                    },
+                    {
+                      "key": "appointment_id",
+                      "value": "<appointment-uuid>"
+                    }
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"status\": \"confirmed\",\n  \"notes\": \"Customer confirmed by phone.\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Delete Appointment",
+              "request": {
+                "method": "DELETE",
+                "description": "Delete an appointment.\n\n**Query**: `chatbot_slug`, `appointment_id`.\n\n**200** → `data: {id}`.",
+                "url": {
+                  "raw": "{{base_url}}/api/v1/appointment-bookings/appointments/delete/?chatbot_slug={{chatbot_slug}}&appointment_id=<appointment-uuid>",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "appointment-bookings",
+                    "appointments",
+                    "delete",
+                    ""
+                  ],
+                  "query": [
+                    {
+                      "key": "chatbot_slug",
+                      "value": "{{chatbot_slug}}"
+                    },
+                    {
+                      "key": "appointment_id",
+                      "value": "<appointment-uuid>"
+                    }
+                  ]
+                }
+              },
+              "response": []
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Subscriptions",
+      "description": "Plans, entitlements, and Stripe billing lifecycle. Base path: `/api/v1/subscriptions/`. Chatbot-scoped operations use the **`chatbot`** query param (slug); admin-level operations (checkout, activate-free, payments, billing portal, cancellation) require chatbot admin.",
+      "item": [
+        {
+          "name": "List Plans",
+          "request": {
+            "method": "GET",
+            "description": "Public subscription plans.\n\n**200** → `data`: `{id, name, slug, plan_type, ai_message_limit, file_size_limit_mb, knowledge_chunk_limit, ai_message_overage_enabled, features, details_html, is_free, requires_sales_contact, sort_order, prices: [{id, provider, billing_interval, currency, amount, ai_message_overage_unit_price}]}` + `meta: {count}`.",
+            "url": {
+              "raw": "{{base_url}}/api/v1/subscriptions/plans/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "subscriptions",
+                "plans",
+                ""
+              ]
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Plan Details",
+          "request": {
+            "method": "GET",
+            "description": "One plan by slug.\n\n**Query**: `plan` (slug, required).",
+            "url": {
+              "raw": "{{base_url}}/api/v1/subscriptions/plans/details/?plan=free",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "subscriptions",
+                "plans",
+                "details",
+                ""
+              ],
+              "query": [
+                {
+                  "key": "plan",
+                  "value": "free",
+                  "description": "Plan slug (required)"
+                }
+              ]
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Stripe Checkout",
+          "request": {
+            "method": "POST",
+            "description": "Start or reuse a Stripe checkout session. **Chatbot admin only.**\n\n**Query**: `chatbot` (slug, required).\n\n**Body**: `plan_price_id` (uuid of an active, non-free, non-sales price, required).\n\n**201/200** → `data: {subscription_id, subscription_status, client_secret, requires_checkout, reused, action}`. Errors: 402/409/502/503.",
+            "url": {
+              "raw": "{{base_url}}/api/v1/subscriptions/checkout/?chatbot={{chatbot_slug}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "subscriptions",
+                "checkout",
+                ""
+              ],
+              "query": [
+                {
+                  "key": "chatbot",
+                  "value": "{{chatbot_slug}}",
+                  "description": "Required"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"plan_price_id\": \"<price-uuid>\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Activate Free Plan",
+          "request": {
+            "method": "POST",
+            "description": "Activate a free (amount 0, public) plan for the chatbot. **Chatbot admin only.**\n\n**Query**: `chatbot`.\n\n**Body**: `plan_price_id` (uuid, required).\n\n**201/200** → `data`: subscription object.",
+            "url": {
+              "raw": "{{base_url}}/api/v1/subscriptions/activate-free/?chatbot={{chatbot_slug}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "subscriptions",
+                "activate-free",
+                ""
+              ],
+              "query": [
+                {
+                  "key": "chatbot",
+                  "value": "{{chatbot_slug}}"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"plan_price_id\": \"<free-price-uuid>\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Current Subscription",
+          "request": {
+            "method": "GET",
+            "description": "The chatbot's active subscription (any member).\n\n**Query**: `chatbot`.\n\n**200** → `data: {subscription: {...}|null}` with `{id, chatbot_id, plan_price_id, snapshot, provider, renewal_mode, status, started_at, current_period_start, current_period_end, cancel_at_period_end, canceled_at, ended_at, ...}`.",
+            "url": {
+              "raw": "{{base_url}}/api/v1/subscriptions/current/?chatbot={{chatbot_slug}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "subscriptions",
+                "current",
+                ""
+              ],
+              "query": [
+                {
+                  "key": "chatbot",
+                  "value": "{{chatbot_slug}}"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Payment History",
+          "request": {
+            "method": "GET",
+            "description": "Paginated payments for the chatbot. **Chatbot admin only.**\n\n**Query**: `chatbot`, `page`, `page_size`.\n\n**200** → `data`: `{id, subscription_id, plan_price_id, provider, payment_type, status, billing_interval, amount, amount_refunded, currency, description, provider_reference, failure_code, failure_message, paid_at, refunded_at, invoice_url, invoice_pdf, created_at, updated_at}`.",
+            "url": {
+              "raw": "{{base_url}}/api/v1/subscriptions/payments/?chatbot={{chatbot_slug}}&page=1&page_size=20",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "subscriptions",
+                "payments",
+                ""
+              ],
+              "query": [
+                {
+                  "key": "chatbot",
+                  "value": "{{chatbot_slug}}"
+                },
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "page_size",
+                  "value": "20"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Stripe Billing Portal",
+          "request": {
+            "method": "POST",
+            "description": "Get a Stripe billing portal URL. **Chatbot admin only.** Requires an existing Stripe customer (400 otherwise).\n\n**Query**: `chatbot`.\n\n**200** → `data: {portal_url}`.",
+            "url": {
+              "raw": "{{base_url}}/api/v1/subscriptions/billing-portal/?chatbot={{chatbot_slug}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "subscriptions",
+                "billing-portal",
+                ""
+              ],
+              "query": [
+                {
+                  "key": "chatbot",
+                  "value": "{{chatbot_slug}}"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Cancel Subscription",
+          "request": {
+            "method": "POST",
+            "description": "Cancel the chatbot's subscription. **Chatbot admin only.** Free plans cancel immediately; Stripe plans toggle end-of-period cancellation.\n\n**Query**: `chatbot`.\n\n**Body**: `cancel_at_period_end` (bool, default `true`).",
+            "url": {
+              "raw": "{{base_url}}/api/v1/subscriptions/cancellation/?chatbot={{chatbot_slug}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "subscriptions",
+                "cancellation",
+                ""
+              ],
+              "query": [
+                {
+                  "key": "chatbot",
+                  "value": "{{chatbot_slug}}"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"cancel_at_period_end\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Stripe Webhook",
+          "request": {
+            "method": "POST",
+            "description": "Stripe webhook receiver. **No auth** (signature-verified); send the raw Stripe event body with the `Stripe-Signature` header. Intended for Stripe, not manual use.\n\n**200** → `data: {event_id, duplicate}`.",
+            "url": {
+              "raw": "{{base_url}}/api/v1/subscriptions/stripe/webhook/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "subscriptions",
+                "stripe",
+                "webhook",
+                ""
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"id\": \"evt_test\",\n  \"object\": \"event\",\n  \"type\": \"invoice.paid\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Notifications",
+      "description": "Scoped in-app notifications for the logged-in user. Base path: `/api/v1/notifications/`. **Authenticated** (JWT).",
+      "item": [
+        {
+          "name": "List Notifications",
+          "request": {
+            "method": "GET",
+            "description": "Paginated notifications with optional filters.\n\n**Query**: `recipient_type` (`global|workspace|chatbot|user|chat_session`), `notification_type` or `type` (`general|update|maintenance|notify|new_message|session_started|ai_notification|training_complete`), `workspace_id` (uuid), `chatbot_id` (uuid), `unread_only` (`1|true|yes`), `page`, `page_size`.\n\n**200** → `data`: `{id, recipient_type, notification_type, title, message, metadata, workspace_id, chatbot_id, target_id, is_read, read_at, created_at}`; `meta` adds `unread_count`.",
+            "url": {
+              "raw": "{{base_url}}/api/v1/notifications/?unread_only=true&page=1&page_size=20",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "notifications",
+                ""
+              ],
+              "query": [
+                {
+                  "key": "unread_only",
+                  "value": "true",
+                  "description": "Optional"
+                },
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "page_size",
+                  "value": "20"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Mark All Read",
+          "request": {
+            "method": "PATCH",
+            "description": "Mark filtered notifications as read (same filters as list).\n\n**200** → `data: {marked_read_count}`.",
+            "url": {
+              "raw": "{{base_url}}/api/v1/notifications/read-all/?unread_only=true",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "notifications",
+                "read-all",
+                ""
+              ],
+              "query": [
+                {
+                  "key": "unread_only",
+                  "value": "true",
+                  "description": "Optional — same filters as list"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Mark Read",
+          "request": {
+            "method": "PATCH",
+            "description": "Mark one notification as read.\n\n**200** → `data: {id, is_read, read_at}`.",
+            "url": {
+              "raw": "{{base_url}}/api/v1/notifications/{{notification_id}}/read/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "notifications",
+                "{{notification_id}}",
+                "read",
+                ""
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Platform Config",
+      "description": "Public dison platform configuration (branding, legal docs, features, announcements, SEO).",
+      "item": [
+        {
+          "name": "Get Platform Config",
+          "request": {
+            "method": "GET",
+            "description": "Public platform configuration. Section flags are presence-based; omit all to get every section.\n\n**Query** (all optional): `branding`, `legal_document`, `feature`, `announcement`, `platform_default`, `seo`, `audit`, `document_type` (`privacy_policy|terms_of_service|data_deletion_policy|cookie_policy`).\n\n**200** → `data`: selected sections, e.g. `branding {title, logo, favicon, support_email}`, `feature {is_vectorize_enabled, maintenance_mode}`, `announcement {notify_banner_enabled, notify_banner_text, notify_banner_url}`, `seo {meta_title, meta_description}`, ...",
+            "url": {
+              "raw": "{{base_url}}/api/v1/base/?document_type=privacy_policy",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "base",
+                ""
+              ],
+              "query": [
+                {
+                  "key": "document_type",
+                  "value": "privacy_policy",
+                  "description": "Optional: limits legal_document to one document"
+                }
+              ]
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Platform Admin",
+      "description": "Platform-level administration. Base path: `/api/v1/admin/`. Uses `{{admin_access_token}}` (set automatically by Admin Login) instead of the user token. Most endpoints require `is_staff` (`IsAdmin`) or `is_superuser` (`IsSuperAdmin`).",
+      "item": [
+        {
+          "name": "Accounts",
+          "description": "Platform staff authentication and user administration.",
+          "item": [
+            {
+              "name": "Admin Login",
+              "request": {
+                "method": "POST",
+                "description": "Login for platform staff (`is_staff` required; suspended/deactivated profiles rejected). Saves tokens to `admin_access_token` / `admin_refresh_token`.\n\n**Body**: `email`, `password`.\n\n**200** → `data: {access_token, refresh_token}`.",
+                "url": {
+                  "raw": "{{base_url}}/api/v1/admin/accounts/login/",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "admin",
+                    "accounts",
+                    "login",
+                    ""
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"email\": \"admin@example.com\",\n  \"password\": \"<admin-password>\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "auth": {
+                  "type": "noauth"
+                },
+                "event": [
+                  {
+                    "listen": "test",
+                    "script": {
+                      "type": "text/javascript",
+                      "exec": [
+                        "const json = pm.response.json();",
+                        "const d = json.data || {};",
+                        "if (d.access_token) pm.collectionVariables.set('admin_access_token', d.access_token);",
+                        "if (d.refresh_token) pm.collectionVariables.set('admin_refresh_token', d.refresh_token);"
+                      ]
+                    }
+                  }
+                ]
+              },
+              "response": []
+            },
+            {
+              "name": "Admin Profile",
+              "request": {
+                "method": "GET",
+                "description": "Current staff profile. **IsAdmin.**\n\n**200** → `data`: `{id, email, name, phone, status, provider, avatar_url, is_active, is_staff, is_superuser, is_email_verified, last_active_at, created_at}`.",
+                "url": {
+                  "raw": "{{base_url}}/api/v1/admin/accounts/me/",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "admin",
+                    "accounts",
+                    "me",
+                    ""
+                  ]
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Update Admin Info",
+              "request": {
+                "method": "PATCH",
+                "description": "Update the staff profile (at least one field). **IsAdmin.** JSON or multipart.\n\n**Body**: `name`, `avatar` (image), `clear_avatar` (bool).",
+                "url": {
+                  "raw": "{{base_url}}/api/v1/admin/accounts/update-info/",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "admin",
+                    "accounts",
+                    "update-info",
+                    ""
+                  ]
+                },
+                "body": {
+                  "mode": "formdata",
+                  "formdata": [
+                    {
+                      "key": "name",
+                      "type": "text",
+                      "value": "Platform Admin"
+                    },
+                    {
+                      "key": "avatar",
+                      "type": "file",
+                      "src": [],
+                      "description": "Optional image (multipart only)"
+                    },
+                    {
+                      "key": "clear_avatar",
+                      "type": "text",
+                      "value": "false"
+                    }
+                  ]
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Update Admin Password",
+              "request": {
+                "method": "PATCH",
+                "description": "Change the staff password. **IsAdmin.**\n\n**Body**: `current_password`, `new_password` (min 8, must differ), `confirm_new_password` — all required.",
+                "url": {
+                  "raw": "{{base_url}}/api/v1/admin/accounts/update-password/",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "admin",
+                    "accounts",
+                    "update-password",
+                    ""
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"current_password\": \"<current>\",\n  \"new_password\": \"<new-strong-pass>\",\n  \"confirm_new_password\": \"<new-strong-pass>\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "List User Accounts",
+              "request": {
+                "method": "GET",
+                "description": "Paginated end-user accounts (excludes staff/superusers). **IsSuperAdmin.**\n\n**Query**: `search` (email/name/phone/city/country contains), `status` (repeatable or comma-separated: `ACTIVE|SUSPENDED|DEACTIVATED|PREMIUM`), `is_email_verified` (bool), `page`, `page_size`.\n\n**200** → `data`: `{id, email, name, phone, avatar_url, country, city, timezone, status, provider, is_active, is_email_verified, last_active_at, created_at}` + `meta`.",
+                "url": {
+                  "raw": "{{base_url}}/api/v1/admin/accounts/account-list/?search=&status=ACTIVE&page=1&page_size=20",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "admin",
+                    "accounts",
+                    "account-list",
+                    ""
+                  ],
+                  "query": [
+                    {
+                      "key": "search",
+                      "value": "",
+                      "description": "Optional"
+                    },
+                    {
+                      "key": "status",
+                      "value": "ACTIVE",
+                      "description": "Optional, repeatable/comma-separated"
+                    },
+                    {
+                      "key": "page",
+                      "value": "1"
+                    },
+                    {
+                      "key": "page_size",
+                      "value": "20"
+                    }
+                  ]
+                }
+              },
+              "response": []
+            }
+          ]
+        },
+        {
+          "name": "Platform Config",
+          "description": "Platform-wide configuration management.",
+          "item": [
+            {
+              "name": "Update Platform Config",
+              "request": {
+                "method": "PATCH",
+                "description": "Update platform configuration. **IsSuperAdmin.** Accepts flat keys or nested `{section: {field}}` objects; JSON or multipart (logo). At least one field required.\n\n**Fields**: `title`, `logo` (image), `favicon`, `support_email`, `privacy_policy`, `terms_of_service`, `data_deletion_policy`, `cookie_policy`, `is_vectorize_enabled`, `maintenance_mode`, `notify_banner_enabled`, `notify_banner_text` (≤500), `notify_banner_url`, `default_free_credits` (int), `monthly_free_credits` (int), `meta_title` (≤200), `meta_description`.\n\n**200** → `data`: all config sections.",
+                "url": {
+                  "raw": "{{base_url}}/api/v1/admin/base/update/",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "admin",
+                    "base",
+                    "update",
+                    ""
+                  ]
+                },
+                "body": {
+                  "mode": "formdata",
+                  "formdata": [
+                    {
+                      "key": "title",
+                      "type": "text",
+                      "value": "dison",
+                      "description": "Branding"
+                    },
+                    {
+                      "key": "support_email",
+                      "type": "text",
+                      "value": "support@dison.example",
+                      "description": "Branding"
+                    },
+                    {
+                      "key": "maintenance_mode",
+                      "type": "text",
+                      "value": "false",
+                      "description": "Feature"
+                    },
+                    {
+                      "key": "notify_banner_enabled",
+                      "type": "text",
+                      "value": "false",
+                      "description": "Announcement"
+                    },
+                    {
+                      "key": "meta_title",
+                      "type": "text",
+                      "value": "dison Platform",
+                      "description": "SEO"
+                    }
+                  ]
+                }
+              },
+              "response": []
+            }
+          ]
+        },
+        {
+          "name": "Subscription Plans",
+          "description": "Plan CRUD. **IsSuperAdmin.** Base path: `/api/v1/admin/subscriptions/`.",
+          "item": [
+            {
+              "name": "Create Plan",
+              "request": {
+                "method": "POST",
+                "description": "Create a subscription plan. Rule: if `ai_message_overage_enabled` is true, `ai_message_limit` must not be null.\n\n**Body**: `name` (required), `plan_type`, `ai_message_limit` (int|null), `file_size_limit_mb`, `knowledge_chunk_limit`, `ai_message_overage_enabled` (bool), `features` (unique choice list), `details_html`, `is_free`, `is_public`, `requires_sales_contact`, `is_active`, `sort_order`.\n\n**201** → `data`: full plan incl. `id`, `slug`, `created_by`, `updated_by`.",
+                "url": {
+                  "raw": "{{base_url}}/api/v1/admin/subscriptions/plans/create/",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "admin",
+                    "subscriptions",
+                    "plans",
+                    "create",
+                    ""
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"name\": \"Pro\",\n  \"ai_message_limit\": 10000,\n  \"file_size_limit_mb\": 500,\n  \"knowledge_chunk_limit\": 5000,\n  \"ai_message_overage_enabled\": true,\n  \"is_public\": true,\n  \"sort_order\": 10\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Update Plan",
+              "request": {
+                "method": "PATCH",
+                "description": "Update a plan. Supports PUT and PATCH. Same writable fields as create.",
+                "url": {
+                  "raw": "{{base_url}}/api/v1/admin/subscriptions/plans/{{plan_id}}/update/",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "admin",
+                    "subscriptions",
+                    "plans",
+                    "{{plan_id}}",
+                    "update",
+                    ""
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"file_size_limit_mb\": 1024,\n  \"sort_order\": 11\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Delete Plan",
+              "request": {
+                "method": "DELETE",
+                "description": "Delete a plan. **409** if referenced by subscriptions/payments.\n\n**200** → `data: {id}`.",
+                "url": {
+                  "raw": "{{base_url}}/api/v1/admin/subscriptions/plans/{{plan_id}}/delete/",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "admin",
+                    "subscriptions",
+                    "plans",
+                    "{{plan_id}}",
+                    "delete",
+                    ""
+                  ]
+                }
+              },
+              "response": []
+            }
+          ]
+        },
+        {
+          "name": "Analytics",
+          "description": "Platform usage analytics. **IsSuperAdmin.** Base path: `/api/v1/admin/analytics/`.",
+          "item": [
+            {
+              "name": "AI Usage Stats",
+              "request": {
+                "method": "GET",
+                "description": "Aggregate AI usage/cost over an inclusive date range.\n\n**Query**: `start_date`, `end_date` (`YYYY-MM-DD`, optional; `end_date >= start_date`).\n\n**200** → `data`: `{total_message, total_cost, total_tokens, trip_planning {cost, tokens}, chat {cost, tokens}, trip_chat {cost, tokens}}`.",
+                "url": {
+                  "raw": "{{base_url}}/api/v1/admin/analytics/ai-usage/?start_date=2026-09-01&end_date=2026-09-16",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "admin",
+                    "analytics",
+                    "ai-usage",
+                    ""
+                  ],
+                  "query": [
+                    {
+                      "key": "start_date",
+                      "value": "2026-09-01",
+                      "description": "Optional"
+                    },
+                    {
+                      "key": "end_date",
+                      "value": "2026-09-16",
+                      "description": "Optional"
+                    }
+                  ]
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "User Growth",
+              "request": {
+                "method": "GET",
+                "description": "Sign-up growth series.\n\n**Query**: `month` (`YYYY-MM`, optional — daily points for that month; otherwise the last 12 months).\n\n**200** → `data`: `{granularity: month|day, points: [{period (YYYY-MM|YYYY-MM-DD), label, count}]}`.",
+                "url": {
+                  "raw": "{{base_url}}/api/v1/admin/analytics/user-growth/?month=",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "admin",
+                    "analytics",
+                    "user-growth",
+                    ""
+                  ],
+                  "query": [
+                    {
+                      "key": "month",
+                      "value": "",
+                      "description": "Optional YYYY-MM; omit for last 12 months"
+                    }
+                  ]
+                }
+              },
+              "response": []
+            }
+          ]
+        }
+      ],
+      "auth": {
+        "type": "bearer",
+        "bearer": [
+          {
+            "key": "token",
+            "value": "{{admin_access_token}}",
+            "type": "string"
+          }
+        ]
+      }
+    }
+  ]
+}
