@@ -243,10 +243,10 @@ def classify_attachment(uploaded_file):
 class ChatMessageCreateView(GenericAPIView):
     """Send a user message, optionally with image/file attachments.
 
-    The agent reply will be produced by the agent module and stored as an
-    agent message with its ``response_time_ms``. Images are passed to the
-    multimodal agent visually; documents are text-extracted so the
-    chatbot can answer from file contents.
+    Answered in the background in text mode; the reply streams to the
+    session socket as ``agent.response.*`` events and is stored as an
+    agent message. Documents are text-extracted so the chatbot can answer
+    from file contents. Plain typed messages should go over the socket.
     """
 
     permission_classes = [IsAuthenticated]
@@ -264,6 +264,18 @@ class ChatMessageCreateView(GenericAPIView):
             pk=serializer.validated_data["session"],
         )
         uploaded_files = serializer.validated_data["attachments"]
+
+        from agent.helpers.lock import voice_active
+
+        if voice_active(session.pk):
+            return APIResponse.error(
+                errors={"session": "Voice mode is active for this session."},
+                message=(
+                    "Switch the session socket to text mode before sending "
+                    "messages over REST."
+                ),
+                status=status.HTTP_409_CONFLICT,
+            )
 
         try:
             classified = [

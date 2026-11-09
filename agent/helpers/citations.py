@@ -10,6 +10,9 @@ import re
 
 _GROUP = re.compile(r"\[\s*K\d+(?:\s*[,;]\s*K\d+)*\s*\]")
 _REF = re.compile(r"K\d+")
+# An unterminated tail that could still become a citation group.
+_OPEN_TAIL = re.compile(r"\[\s*(?:K\d*(?:\s*[,;]\s*(?:K\d*)?)*)?\s*$")
+_MAX_HELD_CHARS = 64
 
 
 def extract_citations(text, refs):
@@ -27,3 +30,26 @@ def extract_citations(text, refs):
     clean = re.sub(r"[ \t]+([.,;:!?])", r"\1", clean)  # "word [K1]." -> "word."
     clean = re.sub(r"[ \t]{2,}", " ", clean)
     return clean.strip(), source_ids
+
+
+class CitationStreamFilter:
+    """Strip [K1] markers from streamed chunks, even when split across
+    chunks: a tail that may still become a marker is held back until the
+    next chunk (or ``flush``) decides it."""
+
+    def __init__(self):
+        self._held = ""
+
+    def feed(self, chunk):
+        text = _GROUP.sub("", self._held + (chunk or ""))
+        self._held = ""
+        start = text.rfind("[")
+        if start != -1 and len(text) - start <= _MAX_HELD_CHARS:
+            if _OPEN_TAIL.fullmatch(text[start:]):
+                self._held = text[start:]
+                text = text[:start]
+        return text
+
+    def flush(self):
+        text, self._held = _GROUP.sub("", self._held), ""
+        return text

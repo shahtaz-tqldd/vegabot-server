@@ -93,7 +93,7 @@ CELERY_IMPORTS = (
     "base.tasks",
     "accounts.tasks",
     "knowledge.tasks",
-    "agent.chat_agent.reply",
+    "agent.reply",
 )
 CELERY_BEAT_SCHEDULE = {
     "daily-platform-maintenance": {
@@ -159,6 +159,13 @@ GEMINI_LIVE_CHAT_VOICE = env("GEMINI_LIVE_CHAT_VOICE", "Puck")
 GEMINI_CHAT_MAX_OUTPUT_TOKENS = env_int("GEMINI_CHAT_MAX_OUTPUT_TOKENS", 1024)
 GEMINI_INPUT_COST_PER_MILLION = env_float("GEMINI_INPUT_COST_PER_MILLION", 0.30)
 GEMINI_OUTPUT_COST_PER_MILLION = env_float("GEMINI_OUTPUT_COST_PER_MILLION", 2.50)
+# Live (voice) model rates; default to the chat rates until configured.
+GEMINI_LIVE_INPUT_COST_PER_MILLION = env_float(
+    "GEMINI_LIVE_INPUT_COST_PER_MILLION", GEMINI_INPUT_COST_PER_MILLION,
+)
+GEMINI_LIVE_OUTPUT_COST_PER_MILLION = env_float(
+    "GEMINI_LIVE_OUTPUT_COST_PER_MILLION", GEMINI_OUTPUT_COST_PER_MILLION,
+)
 
 # CLOUDFLARE R2 STORAGE
 R2_ACCOUNT_ID = env("R2_ACCOUNT_ID", "")

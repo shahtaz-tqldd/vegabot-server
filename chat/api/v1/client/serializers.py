@@ -103,8 +103,10 @@ class ChatMessageSerializer(serializers.ModelSerializer):
         fields = (
             "id",
             "sender_type",
+            "mode",
             "content",
             "attachments",
+            "recommendations",
             "response_time_ms",
             "created_at",
         )

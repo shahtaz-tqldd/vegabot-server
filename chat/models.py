@@ -6,6 +6,7 @@ from chat.utils.choices import (
     AttachmentProcessStatus,
     ChatMessageAttachmentType,
     ChatMessageSenderType,
+    ChatMode,
     EscalationReason,
     EscalationStatus,
     ChatSessionStatus,
@@ -72,6 +73,20 @@ class ChatMessage(BaseMinModel):
         blank=True,
         default="",
         help_text="May be blank for attachment-only messages.",
+    )
+    mode = models.CharField(
+        max_length=10,
+        choices=ChatMode.choices,
+        default=ChatMode.TEXT,
+        help_text="text: typed / chat model. audio: spoken / live model.",
+    )
+    recommendations = models.JSONField(
+        default=list,
+        blank=True,
+        help_text=(
+            "For agent messages: structured product/service cards the "
+            "agent recommended in this reply."
+        ),
     )
     response_time_ms = models.PositiveBigIntegerField(
         null=True,

@@ -1,6 +1,6 @@
-"""Build the visitor-facing reply payload from the internal envelope.
+"""Source metadata for the client from the internal envelope.
 
-Source metadata comes from the vector results captured during the turn
+Metadata comes from the vector results captured during the turn
 (already in tool state) — no reply-time database queries.
 """
 
@@ -15,18 +15,3 @@ def build_source_metadata(result, collector_results):
         if metadata:
             sources.append({"id": str(source_id), **metadata})
     return sources
-
-
-def build_public_reply(response, collector_results):
-    result = response["result"]
-    return {
-        "content": result["content"],
-        "sources": build_source_metadata(result, collector_results),
-        "escalation": (
-            {
-                "reason": response["result"]["escalation"]["escalation_reason"],
-            }
-            if response["result"].get("escalation")
-            else None
-        ),
-    }

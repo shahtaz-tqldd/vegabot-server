@@ -3,6 +3,7 @@
 from django.conf import settings
 
 from agent.schema import AgentResponseSchema
+from chat.utils.choices import ChatMode
 
 
 def add_event_usage(usage, metadata):
@@ -18,17 +19,23 @@ def add_event_usage(usage, metadata):
     usage.total_tokens += metadata.total_token_count or (prompt + output + thinking)
 
 
-def compute_cost(usage):
+def compute_cost(usage, mode=ChatMode.TEXT):
+    """Estimated USD; voice turns are priced at the live model's rates."""
+    if mode == ChatMode.AUDIO:
+        input_rate = settings.GEMINI_LIVE_INPUT_COST_PER_MILLION
+        output_rate = settings.GEMINI_LIVE_OUTPUT_COST_PER_MILLION
+    else:
+        input_rate = settings.GEMINI_INPUT_COST_PER_MILLION
+        output_rate = settings.GEMINI_OUTPUT_COST_PER_MILLION
     return (
-        usage.input_tokens * settings.GEMINI_INPUT_COST_PER_MILLION
-        + usage.output_tokens * settings.GEMINI_OUTPUT_COST_PER_MILLION
+        usage.input_tokens * input_rate + usage.output_tokens * output_rate
     ) / 1_000_000
 
 
-def build_response(result, usage):
+def build_response(result, usage, mode=ChatMode.TEXT):
     """Internal envelope: result + token usage + cost."""
     return AgentResponseSchema(
         result=result,
         token=usage,
-        cost=round(compute_cost(usage), 10),
+        cost=round(compute_cost(usage, mode), 10),
     ).model_dump(mode="json")

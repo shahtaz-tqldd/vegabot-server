@@ -13,6 +13,17 @@ class ChatMessageSenderType(models.TextChoices):
     AGENT = "agent", "Agent"
 
 
+class ChatMode(models.TextChoices):
+    """How a turn was exchanged; selects the agent configuration.
+
+    ``text`` runs the (cheap) chat model; ``audio`` runs the (costly)
+    live model with streamed speech in both directions.
+    """
+
+    TEXT = "text", "Text"
+    AUDIO = "audio", "Audio"
+
+
 class ChatMessageAttachmentType(models.TextChoices):
     IMAGE = "image", "Image"
     DOCUMENT = "document", "Document"

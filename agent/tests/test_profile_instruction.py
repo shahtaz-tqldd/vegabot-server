@@ -97,6 +97,30 @@ class InstructionTests(TestCase):
         self.assertNotIn("search_services", instruction)
 
 
+    def test_text_mode_cites_and_recommends_only_with_catalog(self):
+        with_catalog = build_instruction(self.make_profile(product=True))
+        documents_only = build_instruction(self.make_profile(document=True))
+
+        self.assertIn("[K1]", with_catalog)
+        self.assertIn("shown to\n  the user as cards", with_catalog)
+        self.assertIn("[K1]", documents_only)
+        self.assertNotIn("as cards", documents_only)
+        self.assertNotIn("show_recommendations", with_catalog)
+
+    def test_audio_mode_is_spoken_and_uses_the_recommendation_tool(self):
+        with_catalog = build_instruction(
+            self.make_profile(service=True), mode="audio",
+        )
+        no_knowledge = build_instruction(self.make_profile(), mode="audio")
+
+        self.assertIn("spoken aloud", with_catalog)
+        self.assertIn("show_recommendations", with_catalog)
+        self.assertNotIn("[K1]", with_catalog)
+        self.assertIn("spoken aloud", no_knowledge)
+        self.assertNotIn("show_recommendations", no_knowledge)
+        self.assertNotIn("search_", no_knowledge)
+
+
 class GlobalInstructionTests(TestCase):
     def test_identity_and_rules(self):
         user = User.objects.create_user(

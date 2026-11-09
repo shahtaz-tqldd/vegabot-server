@@ -7,6 +7,7 @@
 """
 
 from agent.helpers.citations import extract_citations
+from agent.helpers.recommendations import build_recommendations
 from agent.helpers.usage import add_event_usage
 from agent.schema import (
     AgentResultSchema,
@@ -92,12 +93,20 @@ class TurnCollector:
         # session_state is the pre-run snapshot (earlier turns); self.refs
         # holds anything the tool added this turn.
         refs = {**(session_state.get(KNOWLEDGE_REFS_KEY) or {}), **self.refs}
+        self.results = {
+            **(session_state.get(KNOWLEDGE_RESULTS_KEY) or {}),
+            **self.results,
+        }
         content, source_ids = extract_citations(self.raw_reply, refs)
 
         source = "root_agent" if content else "configured_fallback"
         result = AgentResultSchema(
             content=content or fallback_message,
             source_ids=source_ids,
+            # Text replies recommend exactly the products/services they cite.
+            recommendations=(
+                build_recommendations(source_ids, self.results) if content else []
+            ),
             escalation=self.escalation,
         )
         return result, source

@@ -1,17 +1,21 @@
-"""Tools shared by the chat agent and the live agent.
+"""Tools of the agent, shared by text and audio mode.
 
 Each knowledge space (documents, products, services) gets its own search
 tool; tools are registered conditionally per chatbot so a chatbot without
 products never sees (or pays for) the product-search tool or its prompt
-section. Escalation is always available.
+section. ``show_recommendations`` exists only in audio mode for chatbots
+with products or services (text replies recommend what they cite).
+Escalation is always available.
 """
 
 from asgiref.sync import sync_to_async
 
 from google.adk.tools import FunctionTool, ToolContext
 
+from agent.helpers.recommendations import recommendations_for_refs
 from app.utils.logger import logger
 from chat.services.escalations import record_escalation
+from chat.utils.choices import ChatMode
 from knowledge.utils.choices import KnowledgeSpaceTypes
 from vector_store.services.vectorize import KnowledgeVectorService
 
@@ -21,6 +25,8 @@ KNOWLEDGE_RESULT_LIMIT = 5
 MAX_ESCALATION_REASON_LENGTH = 500
 
 ESCALATION_TOOL = "request_human_escalation"
+RECOMMENDATION_TOOL = "show_recommendations"
+MAX_DESCRIPTION_CHARS = 500
 
 
 def _clean_text(value, *, field_name, max_length):
@@ -39,11 +45,19 @@ def _result_metadata(result):
         "space": result.space,
         "name": metadata.get("name", ""),
         "url": metadata.get("product_url", "") or metadata.get("url", ""),
-        "price": metadata.get("price"),
+        # Services store their price as ``cost``.
+        "price": metadata.get("price") or metadata.get("cost"),
         "currency": metadata.get("currency"),
         "sku": metadata.get("sku", ""),
+        "category": metadata.get("category", ""),
         "service_type": metadata.get("service_type", ""),
     }
+
+
+def _description(content):
+    """The description section of an embedded catalog item's text."""
+    _, marker, description = (content or "").partition("Description:")
+    return " ".join(description.split())[:MAX_DESCRIPTION_CHARS] if marker else ""
 
 
 def _source_id(result):
@@ -114,6 +128,7 @@ class KnowledgeSearchTools:
             sources.append(source)
             known_results[source_id] = _result_metadata(result) | {
                 "ref": ref,
+                "description": _description(result.content),
             }
 
         tool_context.state[KNOWLEDGE_REFS_KEY] = refs
@@ -224,9 +239,49 @@ class EscalationTools:
         return [FunctionTool(func=self.request_human_escalation)]
 
 
-def build_tools(chatbot_id, session, *, spaces) -> list:
-    """Single source of truth for agent tools, conditional per space."""
-    return [
+class RecommendationTools:
+    """Voice replies cannot carry inline citations, so the agent names the
+    items to display; the client renders them as cards."""
+
+    async def show_recommendations(
+        self,
+        refs: list[str],
+        tool_context: ToolContext,
+    ) -> dict:
+        """Show product or service cards on the user's screen for the
+        items you are recommending.
+
+        Args:
+            refs: The `ref` values (for example ["K1", "K3"]) of the
+                recommended products or services, best first.
+        """
+        items = recommendations_for_refs(
+            refs,
+            tool_context.state.get(KNOWLEDGE_REFS_KEY) or {},
+            tool_context.state.get(KNOWLEDGE_RESULTS_KEY) or {},
+        )
+        if not items:
+            return {
+                "status": "not_found",
+                "items": [],
+                "message": "No searched product or service matches these refs.",
+            }
+        return {"status": "ok", "items": items}
+
+    def get_tools(self) -> list:
+        return [FunctionTool(func=self.show_recommendations)]
+
+
+def build_tools(chatbot_id, session, *, spaces, mode=ChatMode.TEXT) -> list:
+    """Single source of truth for agent tools, conditional per space/mode."""
+    spaces = set(spaces)
+    tools = [
         *KnowledgeSearchTools(chatbot_id, spaces).get_tools(),
         *EscalationTools(chatbot_id, session).get_tools(),
     ]
+    if mode == ChatMode.AUDIO and spaces & {
+        KnowledgeSpaceTypes.PRODUCT,
+        KnowledgeSpaceTypes.SERVICE,
+    }:
+        tools.extend(RecommendationTools().get_tools())
+    return tools

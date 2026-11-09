@@ -19,6 +19,7 @@ class AgentResultSchema(BaseModel):
 
     content: str = Field(min_length=1)
     source_ids: list[str] = Field(default_factory=list)
+    recommendations: list[dict] = Field(default_factory=list)
     escalation: EscalationSchema | None = None
 
 

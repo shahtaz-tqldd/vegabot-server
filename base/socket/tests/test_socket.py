@@ -1,7 +1,9 @@
 import sys
 import types
+from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
+from django.core.cache import cache
 from django.test import TransactionTestCase, override_settings
 
 from asgiref.sync import async_to_sync
@@ -20,9 +22,9 @@ from rest_framework.test import APITestCase
 from rest_framework_simplejwt.tokens import AccessToken
 
 from base.socket.consumers.chat import ChatSessionConsumer  # noqa: F401
-from base.socket.consumers.live import LiveChatConsumer  # noqa: F401
 from base.socket.consumers.notification import NotificationConsumer  # noqa: F401
-from base.socket.events import LIVE_NOT_AVAILABLE, NOTIFICATION_CREATED
+from base.socket.events import NOTIFICATION_CREATED
+from agent.helpers.lock import acquire_session_lock, session_lock_holder
 from base.socket.middleware import JWTAuthMiddlewareStack
 from base.socket.routing import websocket_urlpatterns
 from base.socket.services.broadcaster import broadcast, publish_chat_message
@@ -53,6 +55,7 @@ def token_for(user):
 
 class SocketTestMixin:
     def setUp(self):
+        cache.clear()
         self.user = User.objects.create_user(
             email="socket@example.com",
             password="StrongPass123!",
@@ -122,7 +125,7 @@ class ChatSessionConsumerTests(SocketTestMixin, TransactionTestCase):
 
         async_to_sync(scenario)()
 
-    def test_message_send_acknowledges_and_broadcasts(self):
+    def test_message_send_streams_text_reply(self):
         async def scenario():
             communicator = self._connect()
             connected, _ = await communicator.connect()
@@ -133,22 +136,28 @@ class ChatSessionConsumerTests(SocketTestMixin, TransactionTestCase):
             )
             accepted = await communicator.receive_json_from()
             self.assertEqual(accepted["type"], "message.accepted")
+            self.assertEqual(accepted["mode"], "text")
 
-            broadcast = await communicator.receive_json_from()
-            self.assertEqual(broadcast["type"], "chat.message.created")
-            self.assertEqual(broadcast["message"]["content"], "hello over socket")
-            self.assertEqual(
-                broadcast["message"]["sender_type"],
-                "user",
-            )
+            # The user echo (group broadcast) and the streamed reply
+            # (direct) interleave; compare as a set.
+            events = [await communicator.receive_json_from() for _ in range(3)]
             await communicator.disconnect()
+            return events
 
-        async_to_sync(scenario)()
-        self.assertTrue(
-            ChatSession.objects.get(pk=self.session.pk)
-            .messages.filter(content="hello over socket")
-            .exists(),
+        with patch(
+            "base.socket.consumers.chat.AgentClient", FakeAgentClient,
+        ), patch("base.socket.consumers.chat.build_session_service", return_value=None):
+            events = async_to_sync(scenario)()
+
+        self.assertEqual(
+            sorted(event["type"] for event in events),
+            ["agent.response.completed", "agent.response.delta", "chat.message.created"],
         )
+        echo = next(e for e in events if e["type"] == "chat.message.created")
+        self.assertEqual(echo["message"]["content"], "hello over socket")
+        self.assertEqual(echo["message"]["sender_type"], "user")
+        self.assertEqual(FakeAgentClient.answered, ["hello over socket"])
+        self.assertIsNone(session_lock_holder(self.session.pk))
 
     def test_blank_message_send_rejected(self):
         async def scenario():
@@ -252,57 +261,144 @@ class NotificationConsumerTests(SocketTestMixin, TransactionTestCase):
         async_to_sync(scenario)()
 
 
+class FakeAgentClient:
+    """Stands in for agent.client.AgentClient: one delta, then done."""
+
+    answered = []
+
+    @classmethod
+    def for_session(cls, session_id, **kwargs):
+        return cls()
+
+    async def generate_reply(self, message, *, emit=None):
+        FakeAgentClient.answered.append(message.content)
+        await emit({"type": "agent.response.delta", "data": {"delta": "Hi"}})
+        await emit({"type": "agent.response.completed", "data": {"message": None}})
+
+
+class FakeVoiceSession:
+    instances = []
+    fail_start = False
+
+    def __init__(self, **kwargs):
+        self.kwargs = kwargs
+        self.audio = []
+        self.texts = []
+        self.closed = False
+        FakeVoiceSession.instances.append(self)
+
+    async def start(self):
+        if FakeVoiceSession.fail_start:
+            raise RuntimeError("no live model")
+
+    async def send_audio(self, chunk):
+        self.audio.append(chunk)
+
+    async def send_text(self, text):
+        self.texts.append(text)
+
+    async def close(self):
+        self.closed = True
+
+
 @IN_MEMORY_LAYER
-class LiveChatConsumerTests(SocketTestMixin, TransactionTestCase):
+class ChatModeTests(SocketTestMixin, TransactionTestCase):
+    def setUp(self):
+        super().setUp()
+        FakeVoiceSession.instances = []
+        FakeVoiceSession.fail_start = False
+        patchers = [
+            patch("base.socket.consumers.chat.VoiceSession", FakeVoiceSession),
+            patch("base.socket.consumers.chat.build_session_service", return_value=None),
+        ]
+        for patcher in patchers:
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
     def _connect(self):
         return WebsocketCommunicator(
             socket_app(),
-            f"/ws/chat/sessions/{self.session.pk}/live/?token={token_for(self.user)}",
+            f"/ws/chat/sessions/{self.session.pk}/?token={token_for(self.user)}",
         )
 
-    def test_live_start_reports_error_when_agent_cannot_start(self):
-        # The real agent module exists; without ADK_DB_URL the session
-        # cannot start and the consumer surfaces a live.error event.
+    async def _ready(self):
+        communicator = self._connect()
+        connected, _ = await communicator.connect()
+        self.assertTrue(connected)
+        ready = await communicator.receive_json_from()
+        self.assertEqual(ready["data"]["mode"], "text")
+        return communicator
+
+    def test_audio_mode_routes_audio_and_text_to_the_voice_session(self):
         async def scenario():
-            communicator = self._connect()
-            connected, _ = await communicator.connect()
-            self.assertTrue(connected)
-            await communicator.receive_json_from()  # connection.ready
+            communicator = await self._ready()
+            await communicator.send_json_to({"type": "mode.set", "mode": "audio"})
+            changed = await communicator.receive_json_from()
+            self.assertEqual(changed, {"type": "mode.changed", "data": {"mode": "audio"}})
 
-            await communicator.send_json_to({"type": "live.start"})
-            event = await communicator.receive_json_from()
-            self.assertEqual(event["type"], "live.error")
-            await communicator.disconnect()
-
-        async_to_sync(scenario)()
-
-    def test_audio_without_live_start_errors(self):
-        async def scenario():
-            communicator = self._connect()
-            connected, _ = await communicator.connect()
-            await communicator.receive_json_from()
-
-            await communicator.send_to(bytes_data=b"audio-chunk")
-            event = await communicator.receive_json_from()
-            self.assertEqual(event["type"], "error")
-            await communicator.disconnect()
-
-        async_to_sync(scenario)()
-
-    def test_text_message_send_works_on_live_socket(self):
-        async def scenario():
-            communicator = self._connect()
-            connected, _ = await communicator.connect()
-            await communicator.receive_json_from()
-
+            await communicator.send_to(bytes_data=b"pcm-chunk")
             await communicator.send_json_to(
-                {"type": "message.send", "content": "text alongside voice"},
+                {"type": "message.send", "content": "typed while talking"},
             )
             accepted = await communicator.receive_json_from()
             self.assertEqual(accepted["type"], "message.accepted")
+            self.assertEqual(accepted["mode"], "audio")
+            await communicator.receive_json_from()  # chat.message.created echo
+
+            await communicator.send_json_to({"type": "mode.set", "mode": "text"})
+            changed = await communicator.receive_json_from()
+            self.assertEqual(changed["data"]["mode"], "text")
             await communicator.disconnect()
 
         async_to_sync(scenario)()
+
+        voice = FakeVoiceSession.instances[0]
+        self.assertEqual(voice.audio, [b"pcm-chunk"])
+        self.assertEqual(voice.texts, ["typed while talking"])
+        self.assertTrue(voice.closed)
+        self.assertEqual(
+            self.session.messages.get().mode, "audio",
+        )
+
+    def test_failed_voice_start_stays_in_text_mode(self):
+        FakeVoiceSession.fail_start = True
+
+        async def scenario():
+            communicator = await self._ready()
+            await communicator.send_json_to({"type": "mode.set", "mode": "audio"})
+            error = await communicator.receive_json_from()
+            self.assertEqual(error["type"], "error")
+            self.assertEqual(error["code"], "voice_unavailable")
+
+            await communicator.send_to(bytes_data=b"pcm-chunk")
+            error = await communicator.receive_json_from()
+            self.assertEqual(error["message"], "Switch to audio mode before sending audio.")
+            await communicator.disconnect()
+
+        async_to_sync(scenario)()
+
+    def test_invalid_mode_rejected(self):
+        async def scenario():
+            communicator = await self._ready()
+            await communicator.send_json_to({"type": "mode.set", "mode": "video"})
+            error = await communicator.receive_json_from()
+            self.assertEqual(error["type"], "error")
+            await communicator.disconnect()
+
+        async_to_sync(scenario)()
+
+    def test_busy_session_rejects_text_turns(self):
+        acquire_session_lock(self.session.pk, "voice:elsewhere", 60)
+
+        async def scenario():
+            communicator = await self._ready()
+            await communicator.send_json_to({"type": "message.send", "content": "hi"})
+            error = await communicator.receive_json_from()
+            self.assertEqual(error["code"], "busy")
+            await communicator.disconnect()
+
+        async_to_sync(scenario)()
+        self.assertFalse(self.session.messages.exists())
 
 
 class BroadcasterTests(APITestCase):

@@ -1,12 +1,25 @@
 from django.contrib.postgres.indexes import GinIndex
 from django.contrib.postgres.search import SearchVector, SearchVectorField
 from django.db import models
-from pgvector.django import HnswIndex, VectorField
+from django.db.models import Q
+from pgvector.django import HnswIndex, HalfVectorField
 
 from app.core.models import BaseMinModel
 from knowledge.utils.choices import KnowledgeSpaceTypes
 
+DIMS = 1536
 
+def _hnsw(space):
+    return HnswIndex(
+        name=f"vecdoc_{space}_hnsw",
+        fields=["embedding"],
+        m=16,
+        ef_construction=64,
+        opclasses=["halfvec_cosine_ops"],
+        condition=Q(space=space),
+    )
+    
+        
 class VectorDocument(BaseMinModel):
     """One embedded chunk of knowledge living in a typed vector space.
 
@@ -53,7 +66,7 @@ class VectorDocument(BaseMinModel):
     metadata = models.JSONField(default=dict, blank=True)
     # Postgres-only (pgvector + full-text). Skipped on other backends —
     # see the conditional migration.
-    embedding = VectorField(dimensions=1536)
+    embedding = HalfVectorField(dimensions=DIMS)
     search_vector = models.GeneratedField(
         expression=SearchVector("content", config="english"),
         output_field=SearchVectorField(),
@@ -64,27 +77,21 @@ class VectorDocument(BaseMinModel):
         db_table = "vector_documents"
         ordering = ["created_at"]
         indexes = [
-            models.Index(
-                fields=["chatbot", "space"],
-                name="vector_chatbot_space_idx",
-            ),
-            models.Index(
-                fields=["knowledge_base", "chunk_index"],
-                name="vector_kb_chunk_idx",
-            ),
-            # Postgres-only indexes; the conditional migration skips them
-            # on other backends.
-            GinIndex(fields=["metadata"], name="vector_metadata_gin"),
-            GinIndex(
-                name="vector_docs_search_vector_gin",
-                fields=["search_vector"],
-            ),
-            HnswIndex(
-                name="vector_docs_embedding_hnsw",
-                fields=["embedding"],
-                m=16,
-                ef_construction=64,
-                opclasses=["vector_cosine_ops"],
+            models.Index(fields=["chatbot", "space"], name="vector_chatbot_space_idx"),
+            models.Index(fields=["knowledge_base", "chunk_index"], name="vector_kb_chunk_idx"),
+            GinIndex(fields=["search_vector"], name="vector_docs_search_vector_gin"),
+            _hnsw("document"),
+            _hnsw("product"),
+            _hnsw("service"),
+        ]
+        constraints = [
+            models.CheckConstraint(
+                condition=(
+                    Q(space="document", knowledge_base__isnull=False, product__isnull=True, service__isnull=True)
+                    | Q(space="product", product__isnull=False, knowledge_base__isnull=True, service__isnull=True)
+                    | Q(space="service", service__isnull=False, knowledge_base__isnull=True, product__isnull=True)
+                ),
+                name="vector_doc_single_source",
             ),
         ]
 

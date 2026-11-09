@@ -5,6 +5,8 @@ from django.conf import settings
 from google.adk.models import Gemini
 from google.genai import Client, types
 
+from chat.utils.choices import ChatMode
+
 
 _VERTEX_CLIENT_SCOPE = ContextVar("vertex_client_scope", default=None)
 
@@ -84,17 +86,58 @@ class ChatGemini(Gemini):
         return client
 
 
-def chat_model():
-    return ChatGemini(model=settings.GEMINI_CHAT_MODEL)
+def _as_dict(model_config):
+    return model_config if isinstance(model_config, dict) else {}
+
+
+def model_name_for(mode, model_config=None):
+    """The model a mode runs: DisonConfig override, else the setting."""
+    default = (
+        settings.GEMINI_LIVE_CHAT_MODEL
+        if mode == ChatMode.AUDIO
+        else settings.GEMINI_CHAT_MODEL
+    )
+    return _as_dict(model_config).get("model_name") or default
+
+
+def chat_model(*, model_config=None):
+    """The (cheap) text model; ``model_config`` is DisonConfig
+    ``text_llm_model``."""
+    return ChatGemini(model=model_name_for(ChatMode.TEXT, model_config))
 
 
 def live_model(*, model_config=None):
-    """The live model with its voice; ``model_config`` (DisonConfig
-    ``live_llm_model``) overrides the setting defaults."""
-    model_config = model_config if isinstance(model_config, dict) else {}
-    model_name = model_config.get("model_name") or settings.GEMINI_LIVE_CHAT_MODEL
-    speech_config = build_speech_config(model_config.get("voice_name"))
-    return ChatGemini(model=model_name, speech_config=speech_config)
+    """The (costly) live model with its voice; ``model_config`` is
+    DisonConfig ``live_llm_model``."""
+    model_config = _as_dict(model_config)
+    return ChatGemini(
+        model=model_name_for(ChatMode.AUDIO, model_config),
+        speech_config=build_speech_config(model_config.get("voice_name")),
+    )
+
+
+def build_model(mode, *, model_config=None):
+    if mode == ChatMode.AUDIO:
+        return live_model(model_config=model_config)
+    return chat_model(model_config=model_config)
+
+
+def load_model_config(mode):
+    """Per-mode model overrides from the DisonConfig singleton (sync ORM)."""
+    from base.models import DisonConfig
+
+    config = DisonConfig.objects.first()
+    if config is None:
+        return {}
+    field = "live_llm_model" if mode == ChatMode.AUDIO else "text_llm_model"
+    return _as_dict(getattr(config, field, None))
+
+
+def vertex_location_for(mode):
+    """Live models are served from their own Vertex location."""
+    if mode == ChatMode.AUDIO:
+        return settings.GOOGLE_CLOUD_LIVE_CHAT_LOCATION or None
+    return None
 
 
 def build_speech_config(voice_name=None):

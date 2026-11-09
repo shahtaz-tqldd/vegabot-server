@@ -9,6 +9,7 @@ from agent.tools import (
     KNOWLEDGE_RESULTS_KEY,
     EscalationTools,
     KnowledgeSearchTools,
+    RecommendationTools,
     build_tools,
 )
 from chat.models import ChatEscalation, ChatSession
@@ -129,7 +130,76 @@ class KnowledgeSearchToolsTests(TestCase):
         )
 
 
+class RecommendationToolsTests(TestCase):
+    async def test_service_cards_carry_cost_and_description(self):
+        result = make_result(
+            "Service: Repair\nType: repair\nDescription: Screen fixes  in a day.",
+            space=KnowledgeSpaceTypes.SERVICE,
+            name="Repair",
+            price=None,
+            cost="75.00",
+            service_type="repair",
+            source_id="svc-1",
+        )
+        context = fake_tool_context()
+        await KnowledgeSearchTools(
+            "bot-1", ["service"], vector_service=FakeVectorService([result]),
+        ).search_services("repair", context)
+
+        response = await RecommendationTools().show_recommendations(
+            ["K1", "K9"], context,
+        )
+
+        self.assertEqual(response["status"], "ok")
+        self.assertEqual(
+            response["items"],
+            [{
+                "type": "service", "id": "svc-1", "name": "Repair",
+                "description": "Screen fixes in a day.", "price": "75.00",
+                "currency": "USD", "url": "", "sku": "", "category": "",
+                "service_type": "repair",
+            }],
+        )
+
+    async def test_documents_are_never_recommended(self):
+        context = fake_tool_context()
+        await KnowledgeSearchTools(
+            "bot-1", ["document"],
+            vector_service=FakeVectorService([
+                make_result("Returns policy", space="document", source_id="kb-1"),
+            ]),
+        ).search_documents("returns", context)
+
+        response = await RecommendationTools().show_recommendations(["K1"], context)
+
+        self.assertEqual(response["status"], "not_found")
+
+
 class BuildToolsTests(TestCase):
+    def make_session(self):
+        user = User.objects.create_user(email="modes@example.com", password="x")
+        return ChatSession.objects.create(
+            chatbot=Chatbot.objects.create(
+                chatbot_name="M", business_type="ecommerce", created_by=user,
+            ),
+            created_by=user,
+        )
+
+    def test_recommendation_tool_only_in_audio_mode_with_catalog(self):
+        session = self.make_session()
+
+        def names(spaces, mode):
+            return [
+                tool.name
+                for tool in build_tools(session.chatbot_id, session, spaces=spaces, mode=mode)
+            ]
+
+        self.assertIn("show_recommendations", names(["product"], "audio"))
+        self.assertIn("show_recommendations", names(["service"], "audio"))
+        self.assertNotIn("show_recommendations", names(["product"], "text"))
+        self.assertNotIn("show_recommendations", names(["document"], "audio"))
+        self.assertEqual(names([], "audio"), ["request_human_escalation"])
+
     def test_escalation_always_registered(self):
         session = ChatSession.objects.create(
             chatbot=Chatbot.objects.create(

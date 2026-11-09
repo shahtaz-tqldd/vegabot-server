@@ -6,7 +6,7 @@ from django.db import transaction
 from django.utils import timezone
 
 from chat.models import ChatMessage
-from chat.utils.choices import ChatMessageSenderType
+from chat.utils.choices import ChatMessageSenderType, ChatMode
 
 logger = logging.getLogger(__name__)
 
@@ -31,9 +31,7 @@ def dispatch_agent_reply(message):
 
     def _safe_dispatch():
         try:
-            from agent.chat_agent.reply import (
-                dispatch_agent_reply as dispatch,
-            )
+            from agent.reply import dispatch_agent_reply as dispatch
 
             dispatch(message)
         except Exception:
@@ -50,18 +48,34 @@ def dispatch_agent_reply(message):
         )
 
 
-def create_user_message(session, content):
-    """Store a message sent by the user chatting in the session."""
+def create_user_message(
+    session, content, *, mode=ChatMode.TEXT, dispatch_reply=True,
+):
+    """Store a message sent by the user chatting in the session.
+
+    ``dispatch_reply=False`` is for callers that run the agent turn
+    themselves (the chat socket streams text replies; voice replies come
+    from the live session).
+    """
     message = ChatMessage.objects.create(
         chat_session=session,
         sender_type=ChatMessageSenderType.USER,
         content=validate_user_message(content),
+        mode=mode,
     )
-    dispatch_agent_reply(message)
+    if dispatch_reply:
+        dispatch_agent_reply(message)
     return message
 
 
-def create_agent_message(session, content, *, preceding_message=None):
+def create_agent_message(
+    session,
+    content,
+    *,
+    preceding_message=None,
+    mode=ChatMode.TEXT,
+    recommendations=None,
+):
     """Store the agent's reply and its response latency.
 
     ``response_time_ms`` is measured from the preceding user message so
@@ -84,5 +98,7 @@ def create_agent_message(session, content, *, preceding_message=None):
         chat_session=session,
         sender_type=ChatMessageSenderType.AGENT,
         content=content,
+        mode=mode,
+        recommendations=recommendations or [],
         response_time_ms=response_time_ms,
     )

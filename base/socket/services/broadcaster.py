@@ -38,16 +38,35 @@ def broadcast(groups, payload):
         async_to_sync(_group_send_all)(channel_layer, groups, payload)
 
 
+def _session_payload(event):
+    # ``chat.message.event`` is the consumer handler that forwards
+    # ``event`` to the client as-is.
+    return {"type": "chat.message.event", "event": event}
+
+
+def publish_session_event(session_id, event):
+    """Push one client event to every socket of the session."""
+    broadcast([chat_session_group(session_id)], _session_payload(event))
+
+
+async def apublish_session_event(session_id, event):
+    """Async ``publish_session_event``; awaits delivery, so stream events
+    keep their order and are not lost when the caller's loop ends."""
+    channel_layer = get_channel_layer()
+    if channel_layer is None:
+        return
+    await _group_send_all(
+        channel_layer, [chat_session_group(session_id)], _session_payload(event),
+    )
+
+
 def publish_chat_message(message_data, session_id):
     """Push a newly created chat message to everyone in the session."""
-    broadcast(
-        [chat_session_group(session_id)],
+    publish_session_event(
+        session_id,
         {
-            "type": "chat.message.event",
-            "event": {
-                "type": CHAT_MESSAGE_CREATED,
-                "session_id": str(session_id),
-                "message": message_data,
-            },
+            "type": CHAT_MESSAGE_CREATED,
+            "session_id": str(session_id),
+            "message": message_data,
         },
     )
