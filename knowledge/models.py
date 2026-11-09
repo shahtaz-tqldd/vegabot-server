@@ -131,6 +131,7 @@ class Product(BaseModel):
     )
     currency = models.CharField(max_length=3, default="USD")
     product_url = models.URLField(blank=True, default="")
+    image_url = models.URLField(blank=True, default="")
     status = models.CharField(
         max_length=20,
         choices=StatusTypes.choices,

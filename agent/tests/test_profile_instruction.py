@@ -102,10 +102,12 @@ class InstructionTests(TestCase):
         documents_only = build_instruction(self.make_profile(document=True))
 
         self.assertIn("[K1]", with_catalog)
-        self.assertIn("shown to\n  the user as cards", with_catalog)
+        self.assertIn("show_recommendations", with_catalog)
+        self.assertIn("2-3", with_catalog)
+        self.assertIn("as cards", with_catalog)
         self.assertIn("[K1]", documents_only)
         self.assertNotIn("as cards", documents_only)
-        self.assertNotIn("show_recommendations", with_catalog)
+        self.assertNotIn("show_recommendations", documents_only)
 
     def test_audio_mode_is_spoken_and_uses_the_recommendation_tool(self):
         with_catalog = build_instruction(

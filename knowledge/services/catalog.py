@@ -16,6 +16,7 @@ PRODUCT_TEMPLATE_COLUMNS = [
     "price",
     "currency",
     "product_url",
+    "image_url",
 ]
 
 PRODUCT_TEMPLATE_SAMPLE_ROWS = [
@@ -27,6 +28,7 @@ PRODUCT_TEMPLATE_SAMPLE_ROWS = [
         "price": "29.99",
         "currency": "USD",
         "product_url": "https://example.com/products/wm-001",
+        "image_url": "https://example.com/images/wm-001.jpg",
     },
     {
         "name": "Mechanical Keyboard",
@@ -36,6 +38,7 @@ PRODUCT_TEMPLATE_SAMPLE_ROWS = [
         "price": "89.00",
         "currency": "USD",
         "product_url": "https://example.com/products/mk-002",
+        "image_url": "https://example.com/images/mk-002.jpg",
     },
 ]
 
@@ -101,7 +104,11 @@ def build_service_template_csv():
 
 
 def build_product_text(product):
-    """Structured text embedded into the product vector space."""
+    """Structured text embedded into the product vector space.
+
+    URLs (product_url, image_url) are deliberately excluded: they do not
+    help semantic retrieval and are returned to the agent via metadata.
+    """
     parts = [f"Product: {product.name}"]
     if product.sku:
         parts.append(f"SKU: {product.sku}")
@@ -109,8 +116,6 @@ def build_product_text(product):
         parts.append(f"Category: {product.category}")
     if product.price is not None:
         parts.append(f"Price: {product.price} {product.currency}")
-    if product.product_url:
-        parts.append(f"URL: {product.product_url}")
     if product.description:
         parts.append(f"Description: {product.description}")
     return "\n".join(parts)
@@ -126,6 +131,7 @@ def build_product_metadata(product):
         "price": str(product.price) if product.price is not None else None,
         "currency": product.currency,
         "product_url": product.product_url,
+        "image_url": product.image_url,
     }
 
 
@@ -212,6 +218,7 @@ def _normalize_product_row(row, row_number):
         "price": price,
         "currency": _parse_currency(cleaned.get("currency", ""), row_number),
         "product_url": str(cleaned.get("product_url", "")).strip(),
+        "image_url": str(cleaned.get("image_url", "")).strip(),
     }
 
 

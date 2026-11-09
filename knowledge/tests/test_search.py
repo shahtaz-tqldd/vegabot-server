@@ -26,7 +26,11 @@ SEARCH_URL = reverse("knowledge-search")
 
 class StructuredTextTests(KnowledgeTestBase):
     def test_product_text_and_metadata(self):
-        product = self.create_product(price="29.99")
+        product = self.create_product(
+            price="29.99",
+            product_url="https://example.com/mouse",
+            image_url="https://example.com/mouse.jpg",
+        )
 
         text = build_product_text(product)
         metadata = build_product_metadata(product)
@@ -34,8 +38,13 @@ class StructuredTextTests(KnowledgeTestBase):
         self.assertIn("Product: Wireless Mouse", text)
         self.assertIn("SKU: WM-001", text)
         self.assertIn("Price: 29.99 USD", text)
+        # URLs stay out of the embedded text but travel in metadata.
+        self.assertNotIn("example.com", text)
+        self.assertNotIn("URL:", text)
         self.assertEqual(metadata["sku"], "WM-001")
         self.assertEqual(metadata["price"], "29.99")
+        self.assertEqual(metadata["product_url"], "https://example.com/mouse")
+        self.assertEqual(metadata["image_url"], "https://example.com/mouse.jpg")
 
     def test_service_text_and_metadata(self):
         from knowledge.models import Service

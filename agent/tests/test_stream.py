@@ -71,3 +71,69 @@ class TurnStreamTests(SimpleTestCase):
             await stream.finish(message=None)
 
         async_to_sync(scenario)()
+
+
+class CollectorRecommendationTests(SimpleTestCase):
+    """Cards are the items the agent picked with show_recommendations,
+    not every product it cited."""
+
+    def make_event(self, *, responses=(), text=None):
+        from types import SimpleNamespace
+
+        from google.genai import types
+
+        parts = [types.Part.from_text(text=text)] if text else []
+        return SimpleNamespace(
+            error_code=None,
+            author="assistant",
+            partial=False,
+            usage_metadata=None,
+            id="e",
+            actions=SimpleNamespace(state_delta={}),
+            content=types.Content(role="model", parts=parts) if parts else None,
+            get_function_calls=lambda: [],
+            get_function_responses=lambda: list(responses),
+            is_final_response=lambda: bool(text),
+        )
+
+    def test_cards_come_from_the_recommendation_tool(self):
+        from types import SimpleNamespace
+
+        from agent.helpers.turn_collector import TurnCollector
+
+        card = lambda i: {"type": "product", "id": f"p{i}", "name": f"P{i}"}
+        collector = TurnCollector(root_name="assistant")
+        collector.observe(self.make_event(responses=[SimpleNamespace(
+            name="show_recommendations",
+            response={"status": "ok", "items": [card(2), card(1)]},
+        )]))
+        collector.observe(self.make_event(text="P2 [K2] and P1 [K1]; also P3 [K3]."))
+
+        result, _ = collector.build_result(
+            session_state={
+                "knowledge_refs": {"K1": "p1", "K2": "p2", "K3": "p3"},
+                "knowledge_results": {
+                    f"p{i}": {"space": "product", "name": f"P{i}"} for i in (1, 2, 3)
+                },
+            },
+            fallback_message="fallback",
+        )
+
+        self.assertEqual([c["id"] for c in result.recommendations], ["p2", "p1"])
+        self.assertEqual(result.source_ids, ["p2", "p1", "p3"])
+
+    def test_no_cards_on_fallback(self):
+        from types import SimpleNamespace
+
+        from agent.helpers.turn_collector import TurnCollector
+
+        collector = TurnCollector(root_name="assistant")
+        collector.observe(self.make_event(responses=[SimpleNamespace(
+            name="show_recommendations",
+            response={"status": "ok", "items": [{"id": "p1"}]},
+        )]))
+        result, source = collector.build_result(
+            session_state={}, fallback_message="fallback",
+        )
+        self.assertEqual(source, "configured_fallback")
+        self.assertEqual(result.recommendations, [])

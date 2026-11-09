@@ -1,15 +1,14 @@
 """Structured product/service cards for a reply.
 
 Cards are built from the search results already captured in tool state
-(``KNOWLEDGE_RESULTS_KEY``), so no reply-time database queries. Text
-replies recommend what they cite; voice replies recommend what the agent
-passes to ``show_recommendations``.
+(``KNOWLEDGE_RESULTS_KEY``), so no reply-time database queries. In both
+modes the agent picks the items with ``show_recommendations``.
 """
 
 from knowledge.utils.choices import KnowledgeSpaceTypes
 
 RECOMMENDABLE_SPACES = (KnowledgeSpaceTypes.PRODUCT, KnowledgeSpaceTypes.SERVICE)
-MAX_RECOMMENDATIONS = 6
+MAX_RECOMMENDATIONS = 3
 
 
 def recommendation_item(source_id, metadata):
@@ -22,6 +21,7 @@ def recommendation_item(source_id, metadata):
         "price": metadata.get("price"),
         "currency": metadata.get("currency"),
         "url": metadata.get("url") or "",
+        "image_url": metadata.get("image_url") or "",
         "sku": metadata.get("sku") or "",
         "category": metadata.get("category") or "",
         "service_type": metadata.get("service_type") or "",

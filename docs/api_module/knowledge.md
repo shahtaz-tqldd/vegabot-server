@@ -76,7 +76,8 @@ Removes the source, its vectors, logs, and any stored file.
 `GET /products/template/`
 
 Returns a CSV with the expected columns (`name`, `sku`, `category`,
-`description`, `price`, `currency`, `product_url`) and sample rows.
+`description`, `price`, `currency`, `product_url`, `image_url`) and
+sample rows.
 
 ### Import a template
 
@@ -99,9 +100,9 @@ Returns paginated products in `data` and pagination fields in `meta`.
 `PATCH /products/update/?chatbot=<slug>&product=<uuid>` (JSON)
 
 Send changed product fields (`name`, `sku`, `category`, `description`,
-`price`, `currency`, `product_url`). The product is marked pending and
-a retrain is queued automatically. Returns `{ product, training_log }`
-in `data`.
+`price`, `currency`, `product_url`, `image_url`). The product is marked
+pending and a retrain is queued automatically. Returns
+`{ product, training_log }` in `data`.
 
 ### Disable products
 

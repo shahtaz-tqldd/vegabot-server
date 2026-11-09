@@ -3,8 +3,9 @@
 Each knowledge space (documents, products, services) gets its own search
 tool; tools are registered conditionally per chatbot so a chatbot without
 products never sees (or pays for) the product-search tool or its prompt
-section. ``show_recommendations`` exists only in audio mode for chatbots
-with products or services (text replies recommend what they cite).
+section. ``show_recommendations`` exists in both modes for chatbots with
+products or services: the agent searches a wide candidate set, picks the
+best few, and names them with the tool; cards are sent after the reply.
 Escalation is always available.
 """
 
@@ -12,7 +13,10 @@ from asgiref.sync import sync_to_async
 
 from google.adk.tools import FunctionTool, ToolContext
 
-from agent.helpers.recommendations import recommendations_for_refs
+from agent.helpers.recommendations import (
+    MAX_RECOMMENDATIONS,
+    recommendations_for_refs,
+)
 from app.utils.logger import logger
 from chat.services.escalations import record_escalation
 from chat.utils.choices import ChatMode
@@ -22,6 +26,8 @@ from vector_store.services.vectorize import KnowledgeVectorService
 KNOWLEDGE_REFS_KEY = "knowledge_refs"
 KNOWLEDGE_RESULTS_KEY = "knowledge_results"
 KNOWLEDGE_RESULT_LIMIT = 5
+# Catalog searches return a wider candidate set to choose recommendations from.
+CATALOG_RESULT_LIMIT = 10
 MAX_ESCALATION_REASON_LENGTH = 500
 
 ESCALATION_TOOL = "request_human_escalation"
@@ -45,6 +51,7 @@ def _result_metadata(result):
         "space": result.space,
         "name": metadata.get("name", ""),
         "url": metadata.get("product_url", "") or metadata.get("url", ""),
+        "image_url": metadata.get("image_url", ""),
         # Services store their price as ``cost``.
         "price": metadata.get("price") or metadata.get("cost"),
         "currency": metadata.get("currency"),
@@ -78,6 +85,11 @@ class KnowledgeSearchTools:
         self.vector_service = vector_service or KnowledgeVectorService()
 
     async def _search(self, query, tool_context, space):
+        limit = (
+            KNOWLEDGE_RESULT_LIMIT
+            if space == KnowledgeSpaceTypes.DOCUMENT
+            else CATALOG_RESULT_LIMIT
+        )
         try:
             results = await sync_to_async(
                 self.vector_service.search,
@@ -86,7 +98,7 @@ class KnowledgeSearchTools:
                 query,
                 chatbot_id=self.chatbot_id,
                 space=space,
-                limit=KNOWLEDGE_RESULT_LIMIT,
+                limit=limit,
             )
         except Exception:
             logger.exception(
@@ -157,7 +169,8 @@ class KnowledgeSearchTools:
         tool_context: ToolContext,
     ) -> dict:
         """Search the business's product catalog. Returns matching
-        products with name, SKU, price, currency, and description.
+        products with name, SKU, price, currency, description, product
+        url, and image url.
 
         Args:
             query: Product-oriented search terms (name, category, or need).
@@ -240,23 +253,24 @@ class EscalationTools:
 
 
 class RecommendationTools:
-    """Voice replies cannot carry inline citations, so the agent names the
-    items to display; the client renders them as cards."""
+    """The agent picks the best few searched items and names them here;
+    the client renders them as cards after the reply (both modes)."""
 
     async def show_recommendations(
         self,
         refs: list[str],
         tool_context: ToolContext,
     ) -> dict:
-        """Show product or service cards on the user's screen for the
-        items you are recommending.
+        """Choose the products or services to recommend; they are shown
+        to the user as cards after your reply. Call once, before writing
+        the reply, with only the best matches (at most 3).
 
         Args:
-            refs: The `ref` values (for example ["K1", "K3"]) of the
-                recommended products or services, best first.
+            refs: The `ref` values (for example ["K1", "K3"]) of the 2-3
+                best matching products or services, best first.
         """
         items = recommendations_for_refs(
-            refs,
+            (refs or [])[:MAX_RECOMMENDATIONS],
             tool_context.state.get(KNOWLEDGE_REFS_KEY) or {},
             tool_context.state.get(KNOWLEDGE_RESULTS_KEY) or {},
         )
@@ -273,15 +287,15 @@ class RecommendationTools:
 
 
 def build_tools(chatbot_id, session, *, spaces, mode=ChatMode.TEXT) -> list:
-    """Single source of truth for agent tools, conditional per space/mode."""
+    """Single source of truth for agent tools, conditional per space.
+
+    ``mode`` is accepted for callers; both modes get the same tools.
+    """
     spaces = set(spaces)
     tools = [
         *KnowledgeSearchTools(chatbot_id, spaces).get_tools(),
         *EscalationTools(chatbot_id, session).get_tools(),
     ]
-    if mode == ChatMode.AUDIO and spaces & {
-        KnowledgeSpaceTypes.PRODUCT,
-        KnowledgeSpaceTypes.SERVICE,
-    }:
+    if spaces & {KnowledgeSpaceTypes.PRODUCT, KnowledgeSpaceTypes.SERVICE}:
         tools.extend(RecommendationTools().get_tools())
     return tools

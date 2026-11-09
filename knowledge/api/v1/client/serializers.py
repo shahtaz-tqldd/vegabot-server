@@ -106,6 +106,7 @@ class ProductSerializer(serializers.ModelSerializer):
             "price",
             "currency",
             "product_url",
+            "image_url",
             "status",
             "is_enabled",
             "error_message",

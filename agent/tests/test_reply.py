@@ -116,8 +116,8 @@ class GenerateReplyTests(ReplyFixtureMixin, TestCase):
         self.client.model_name = "gemini-test"
         self.card = {
             "type": "product", "id": "p1", "name": "Runner", "description": "",
-            "price": "50.00", "currency": "USD", "url": "", "sku": "",
-            "category": "", "service_type": "",
+            "price": "50.00", "currency": "USD", "url": "", "image_url": "",
+            "sku": "", "category": "", "service_type": "",
         }
 
     def _fake_turn(self, captured):

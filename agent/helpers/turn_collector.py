@@ -7,7 +7,7 @@
 """
 
 from agent.helpers.citations import extract_citations
-from agent.helpers.recommendations import build_recommendations
+from agent.helpers.recommendations import MAX_RECOMMENDATIONS
 from agent.helpers.usage import add_event_usage
 from agent.schema import (
     AgentResultSchema,
@@ -18,6 +18,7 @@ from agent.tools import (
     ESCALATION_TOOL,
     KNOWLEDGE_REFS_KEY,
     KNOWLEDGE_RESULTS_KEY,
+    RECOMMENDATION_TOOL,
 )
 from app.utils.logger import logger
 
@@ -31,6 +32,7 @@ class TurnCollector:
         self.refs = {}
         self.results = {}
         self.escalation = None
+        self.recommendations = []
         self._seen_usage_events = set()
 
     def observe(self, event):
@@ -67,6 +69,8 @@ class TurnCollector:
     def _track_tool_responses(self, event):
         for response in event.get_function_responses():
             payload = response.response or {}
+            if response.name == RECOMMENDATION_TOOL:
+                self._add_recommendations(payload.get("items") or [])
             if response.name == ESCALATION_TOOL:
                 try:
                     self.escalation = EscalationSchema.model_validate(payload)
@@ -74,6 +78,15 @@ class TurnCollector:
                     self.escalation = EscalationSchema(
                         escalation_reason=str(payload)[:500] or "escalated",
                     )
+
+    def _add_recommendations(self, items):
+        known = {item.get("id") for item in self.recommendations}
+        for item in items:
+            if len(self.recommendations) >= MAX_RECOMMENDATIONS:
+                break
+            if item.get("id") not in known:
+                known.add(item.get("id"))
+                self.recommendations.append(item)
 
     def _track_reply(self, event):
         if (
@@ -103,10 +116,8 @@ class TurnCollector:
         result = AgentResultSchema(
             content=content or fallback_message,
             source_ids=source_ids,
-            # Text replies recommend exactly the products/services they cite.
-            recommendations=(
-                build_recommendations(source_ids, self.results) if content else []
-            ),
+            # The items the agent chose with show_recommendations.
+            recommendations=list(self.recommendations) if content else [],
             escalation=self.escalation,
         )
         return result, source

@@ -3,8 +3,10 @@
 Layout is cache-friendly: everything static comes first (policy, rules,
 per-space tool sections). Only the space sections the chatbot actually
 has are injected — a chatbot without products never sees product-search
-or recommendation guidance. The mode adds only its output format: text
-replies cite sources inline; voice replies are short spoken prose.
+or recommendation guidance. Recommending works the same in both modes
+(search -> pick 2-3 -> show_recommendations -> reply about them). The
+mode adds only its output format: text replies cite sources inline;
+voice replies are short spoken prose.
 """
 
 from agent.tools import ESCALATION_TOOL, RECOMMENDATION_TOOL
@@ -68,23 +70,25 @@ Citations
   or unsupported answers.
 """
 
-TEXT_RECOMMENDATIONS = """\
-- Cite every product or service you recommend: cited items are shown to
-  the user as cards (name, price, link) right after your reply, so keep
-  the text to why each one fits instead of repeating links or SKUs.
+RECOMMENDATIONS = f"""\
+Recommending
+- To recommend products or services: search first, then pick the 2-3
+  best matches for the customer's need from the results (never more
+  than 3).
+- Call {RECOMMENDATION_TOOL} once with their `ref` values (best first)
+  BEFORE writing your reply. They are shown to the user as cards (name,
+  price, link, image) right after your reply.
+- Then write your reply about exactly those items: why each fits, with
+  its name and price. Do not mention other results.
+- Do not call {RECOMMENDATION_TOOL} for plain fact questions (a price,
+  a policy) where nothing is being recommended.
 """
 
 VOICE = """\
 Voice
 - Your replies are spoken aloud. Keep them short and conversational, a
-  few sentences at most. No markdown, lists, links, or citation markers.
-"""
-
-VOICE_RECOMMENDATIONS = f"""\
-- When you recommend products or services, call {RECOMMENDATION_TOOL}
-  once with the `ref` values of the recommended items (best first) so
-  they appear as cards on the user's screen, then mention them briefly by
-  name and price. Never read out links or SKUs.
+  few sentences at most. No markdown, lists, links, SKUs, or citation
+  markers.
 """
 
 
@@ -94,11 +98,9 @@ def build_instruction(profile, *, business_policy="", mode=ChatMode.TEXT):
     recommends = bool(spaces.get("product") or spaces.get("service"))
 
     if mode == ChatMode.AUDIO:
-        output_format = VOICE + (VOICE_RECOMMENDATIONS if recommends else "")
+        output_format = VOICE
     elif has_knowledge:
-        output_format = TEXT_CITATIONS + (
-            TEXT_RECOMMENDATIONS if recommends else ""
-        )
+        output_format = TEXT_CITATIONS
     else:
         output_format = ""
 
@@ -108,6 +110,7 @@ def build_instruction(profile, *, business_policy="", mode=ChatMode.TEXT):
         DOCUMENTS if spaces.get("document") else "",
         PRODUCTS if spaces.get("product") else "",
         SERVICES if spaces.get("service") else "",
+        RECOMMENDATIONS if recommends else "",
         output_format,
     ]
     return "\n\n".join(

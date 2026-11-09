@@ -70,6 +70,8 @@ class KnowledgeSearchToolsTests(TestCase):
                 "Product: Widget\nPrice: 9.99 USD",
                 source_id="p-1",
                 sku="W-1",
+                product_url="https://example.com/widget",
+                image_url="https://example.com/widget.jpg",
             )],
         )
         tools = KnowledgeSearchTools("bot-1", ["product"], vector_service=vector_service)
@@ -83,6 +85,8 @@ class KnowledgeSearchToolsTests(TestCase):
         self.assertEqual(source["name"], "Widget")
         self.assertEqual(source["price"], "9.99")
         self.assertEqual(source["sku"], "W-1")
+        self.assertEqual(source["url"], "https://example.com/widget")
+        self.assertEqual(source["image_url"], "https://example.com/widget.jpg")
         self.assertEqual(vector_service.calls[0]["space"], "product")
         self.assertEqual(
             context.state[KNOWLEDGE_REFS_KEY],
@@ -156,9 +160,37 @@ class RecommendationToolsTests(TestCase):
             [{
                 "type": "service", "id": "svc-1", "name": "Repair",
                 "description": "Screen fixes in a day.", "price": "75.00",
-                "currency": "USD", "url": "", "sku": "", "category": "",
-                "service_type": "repair",
+                "currency": "USD", "url": "", "image_url": "", "sku": "",
+                "category": "", "service_type": "repair",
             }],
+        )
+
+    async def test_catalog_search_returns_wider_candidate_set(self):
+        vectors = FakeVectorService([])
+        tools = KnowledgeSearchTools(
+            "bot-1", ["product", "document"], vector_service=vectors,
+        )
+        await tools.search_products("shirts", fake_tool_context())
+        await tools.search_documents("returns", fake_tool_context())
+
+        self.assertEqual([c["limit"] for c in vectors.calls], [10, 5])
+
+    async def test_recommendations_are_capped_at_three(self):
+        results = [
+            make_result(f"Product: P{i}", source_id=f"p-{i}", name=f"P{i}")
+            for i in range(5)
+        ]
+        context = fake_tool_context()
+        await KnowledgeSearchTools(
+            "bot-1", ["product"], vector_service=FakeVectorService(results),
+        ).search_products("shirts", context)
+
+        response = await RecommendationTools().show_recommendations(
+            ["K5", "K1", "K2", "K3"], context,
+        )
+
+        self.assertEqual(
+            [item["id"] for item in response["items"]], ["p-4", "p-0", "p-1"],
         )
 
     async def test_documents_are_never_recommended(self):
@@ -185,7 +217,7 @@ class BuildToolsTests(TestCase):
             created_by=user,
         )
 
-    def test_recommendation_tool_only_in_audio_mode_with_catalog(self):
+    def test_recommendation_tool_in_both_modes_only_with_catalog(self):
         session = self.make_session()
 
         def names(spaces, mode):
@@ -196,7 +228,8 @@ class BuildToolsTests(TestCase):
 
         self.assertIn("show_recommendations", names(["product"], "audio"))
         self.assertIn("show_recommendations", names(["service"], "audio"))
-        self.assertNotIn("show_recommendations", names(["product"], "text"))
+        self.assertIn("show_recommendations", names(["product"], "text"))
+        self.assertNotIn("show_recommendations", names(["document"], "text"))
         self.assertNotIn("show_recommendations", names(["document"], "audio"))
         self.assertEqual(names([], "audio"), ["request_human_escalation"])
 

@@ -212,6 +212,7 @@ class ProductTemplateAndImportTests(KnowledgeTestBase):
                 "price",
                 "currency",
                 "product_url",
+                "image_url",
             ],
         )
         self.assertGreaterEqual(len(rows), 1)
@@ -227,9 +228,10 @@ class ProductTemplateAndImportTests(KnowledgeTestBase):
                     "price": "19.50",
                     "currency": "usd",
                     "product_url": "https://example.com/uh-100",
+                    "image_url": "https://example.com/uh-100.jpg",
                 },
-                {"name": "", "sku": "BAD", "category": "", "description": "", "price": "", "currency": "", "product_url": ""},
-                {"name": "No Price", "sku": "", "category": "Misc", "description": "", "price": "", "currency": "", "product_url": ""},
+                {"name": "", "sku": "BAD", "category": "", "description": "", "price": "", "currency": "", "product_url": "", "image_url": ""},
+                {"name": "No Price", "sku": "", "category": "Misc", "description": "", "price": "", "currency": "", "product_url": "", "image_url": ""},
             ]
         )
 
@@ -251,6 +253,7 @@ class ProductTemplateAndImportTests(KnowledgeTestBase):
         hub = Product.objects.get(chatbot=self.chatbot, sku="UH-100")
         self.assertEqual(str(hub.price), "19.50")
         self.assertEqual(hub.currency, "USD")
+        self.assertEqual(hub.image_url, "https://example.com/uh-100.jpg")
         self.assertEqual(hub.status, StatusTypes.READY)  # eager training ran
 
         space, item_ids, documents = vector_service.catalog_replacements[0]
@@ -259,6 +262,16 @@ class ProductTemplateAndImportTests(KnowledgeTestBase):
         contents = [document.content for document in documents]
         self.assertTrue(
             any("USB Hub" in content and "19.50 USD" in content for content in contents),
+        )
+        # URLs are metadata-only; they must not be embedded into vectors.
+        self.assertTrue(
+            all("example.com" not in content for content in contents),
+        )
+        self.assertTrue(
+            any(
+                document.metadata.get("image_url") == "https://example.com/uh-100.jpg"
+                for document in documents
+            ),
         )
 
     def test_import_rejects_unsupported_type(self):

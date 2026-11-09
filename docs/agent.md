@@ -9,7 +9,7 @@ mode. The client protocol is in [api_module/chat.md](api_module/chat.md).
 | Model | `GEMINI_CHAT_MODEL` / DisonConfig `text_llm_model` | `GEMINI_LIVE_CHAT_MODEL` / DisonConfig `live_llm_model` (+ `voice_name`) |
 | ADK run | `run_async`, `StreamingMode.SSE`, one run per message | `run_live`, `StreamingMode.BIDI`, one run per voice period |
 | Reply format | text with inline `[K1]` citations | short spoken prose, no markup |
-| Recommendations | cited product/service sources | `show_recommendations(refs)` tool calls |
+| Recommendations | `show_recommendations(refs)` (2-3 items), cards after the text | same |
 | Cost rates | `GEMINI_INPUT/OUTPUT_COST_PER_MILLION` | `GEMINI_LIVE_INPUT/OUTPUT_COST_PER_MILLION` |
 
 ## Layout
@@ -66,15 +66,22 @@ escalate.
 
 ## Recommendations
 
-Search tools store each result's display metadata in ADK state
-(`knowledge_results`, keyed by source id, with short `ref`s like `K1`). Cards
-are built from that state, so building them costs no database queries:
+Same flow in both modes:
 
-- text: `TurnCollector` turns the cited source ids of products/services into cards;
-- audio: the agent calls `show_recommendations(["K1", ...])`, and the tool resolves refs to cards.
+1. `search_products` / `search_services` return up to 10 candidates
+   (`CATALOG_RESULT_LIMIT`; document search stays at 5). Each result's display
+   metadata is stored in ADK state (`knowledge_results`, keyed by source id,
+   with short `ref`s like `K1`).
+2. The agent picks the 2-3 best and calls `show_recommendations(["K3", "K1"])`
+   before replying. The tool resolves refs to cards from that state (no
+   database queries), capped at `MAX_RECOMMENDATIONS = 3`.
+3. The agent writes (text) or speaks (audio) its reply about those items.
+4. After the reply text, the cards are sent as `agent.response.recommendations`
+   and stored on the agent `ChatMessage.recommendations`.
 
-Cards are stored on the agent `ChatMessage.recommendations` and sent after the
-reply text as `agent.response.recommendations`.
+Citations (`[K1]`) in text replies only feed `sources`; they no longer create
+cards. In audio mode cards go out on the model's `turn_complete`, which arrives
+once generation ends, typically while the client is still playing audio.
 
 ## Streaming
 

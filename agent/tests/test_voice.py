@@ -18,8 +18,8 @@ User = get_user_model()
 
 CARD = {
     "type": "service", "id": "s1", "name": "Repair", "description": "",
-    "price": "75.00", "currency": "USD", "url": "", "sku": "",
-    "category": "", "service_type": "repair",
+    "price": "75.00", "currency": "USD", "url": "", "image_url": "",
+    "sku": "", "category": "", "service_type": "repair",
 }
 
 

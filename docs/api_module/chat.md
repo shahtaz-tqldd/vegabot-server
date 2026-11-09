@@ -222,7 +222,7 @@ Field notes:
 
 ### Recommendation card
 
-Sent when the agent recommends products or services. Text replies get a card for every product/service they cite. Voice replies get the items the agent chose to display. Every key is always present:
+Sent when the agent recommends products or services: the 2-3 items the agent chose (best first), in text and voice mode alike, after the reply text. Every key is always present:
 
 ```json
 {
@@ -233,6 +233,7 @@ Sent when the agent recommends products or services. Text replies get a card for
   "price": "89.00",
   "currency": "USD",
   "url": "https://shop.example.com/trail-runner-2",
+  "image_url": "https://shop.example.com/images/trail-runner-2.jpg",
   "sku": "TR-2",
   "category": "Shoes",
   "service_type": ""
@@ -241,7 +242,7 @@ Sent when the agent recommends products or services. Text replies get a card for
 
 - `type`: `product` | `service`. `id` is the product/service id.
 - `price`: decimal string, or `null` when unknown (for services this is the service cost). Show it with `currency` and never recompute it.
-- `url`, `sku`, `category`: products only (`""` for services). `service_type`: services only (`""` for products).
+- `url`, `image_url`, `sku`, `category`: products only (`""` for services). `service_type`: services only (`""` for products).
 - A chatbot without trained products or services never sends cards: the agent does not get the product/service tools or instructions.
 
 ### Text mode flow
