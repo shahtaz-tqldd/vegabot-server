@@ -5,7 +5,9 @@ from agent.helpers.model import generation_config, live_model
 from agent.tools import build_tools
 
 
-def build_live_root_agent(chatbot, session, *, profile, business_policy=""):
+def build_live_root_agent(
+    chatbot, session, *, profile, business_policy="", model_config=None,
+):
     """The live (voice) agent for one conversation.
 
     Shares the chat agent's conditional tools and prompt sections; only
@@ -15,7 +17,7 @@ def build_live_root_agent(chatbot, session, *, profile, business_policy=""):
     return LlmAgent(
         name="live_agent",
         mode="chat",
-        model=live_model(),
+        model=live_model(model_config=model_config),
         description="Customer-facing live voice assistant for this business.",
         instruction=build_instruction(
             profile,

@@ -4,7 +4,7 @@ from knowledge.models import KnowledgeBase, KnowledgeTrainingLog, Product, Servi
 from knowledge.utils.choices import KnowledgeSpaceTypes
 from knowledge.services.catalog import VALID_CURRENCIES
 
-DOCUMENT_STATUS_FIELDS = ("status", "error_message", "processed_at")
+MAX_TEXT_LENGTH = 200_000
 
 
 class ChatbotQuerySerializer(serializers.Serializer):
@@ -51,6 +51,20 @@ class KnowledgeDocumentWebsiteSerializer(ChatbotScopeMixin):
         return validate_public_url(value)
 
 
+class KnowledgeDocumentTextSerializer(ChatbotScopeMixin):
+    title = serializers.CharField(max_length=500, required=False, allow_blank=True, default="")
+    content = serializers.CharField(
+        max_length=MAX_TEXT_LENGTH,
+        allow_blank=False,
+        trim_whitespace=False,
+    )
+
+    def validate_content(self, value):
+        if not value.strip():
+            raise serializers.ValidationError("Content cannot be empty.")
+        return value
+
+
 class KnowledgeDocumentSerializer(serializers.ModelSerializer):
     name = serializers.CharField(read_only=True)
 
@@ -73,11 +87,6 @@ class KnowledgeDocumentSerializer(serializers.ModelSerializer):
             "created_at",
         )
         read_only_fields = fields
-
-
-class KnowledgeDocumentUpdateSerializer(serializers.Serializer):
-    title = serializers.CharField(max_length=500, required=False, allow_blank=True)
-    is_enabled = serializers.BooleanField(required=False)
 
 
 class KnowledgeDocumentQuerySerializer(serializers.Serializer):
@@ -106,21 +115,15 @@ class ProductSerializer(serializers.ModelSerializer):
         read_only_fields = ("id", "status", "error_message", "created_at", "updated_at")
 
 
-class ProductCreateSerializer(ChatbotScopeMixin, ProductSerializer):
-    class Meta(ProductSerializer.Meta):
-        fields = ("chatbot", *ProductSerializer.Meta.fields)
-        read_only_fields = ProductSerializer.Meta.read_only_fields
+class ProductUploadSerializer(ChatbotScopeMixin):
+    file = serializers.FileField()
 
-    def validate(self, attrs):
-        chatbot = attrs["chatbot"]
-        sku = (attrs.get("sku") or "").strip()
-        if sku:
-            conflict = Product.objects.filter(chatbot=chatbot, sku__iexact=sku)
-            if conflict.exists():
-                raise serializers.ValidationError(
-                    {"sku": "A product with this SKU already exists."}
-                )
-        return attrs
+    def validate_file(self, file_obj):
+        if not file_obj.name or not file_obj.name.lower().endswith((".csv", ".xlsx")):
+            raise serializers.ValidationError(
+                "Upload the filled template as CSV or XLSX."
+            )
+        return file_obj
 
 
 class ProductUpdateSerializer(ProductSerializer):
@@ -138,23 +141,18 @@ class ProductUpdateSerializer(ProductSerializer):
         return attrs
 
 
+class ProductDisableSerializer(ChatbotScopeMixin):
+    products = serializers.ListField(
+        child=serializers.UUIDField(),
+        allow_empty=False,
+        max_length=200,
+    )
+
+
 class CatalogQuerySerializer(serializers.Serializer):
     chatbot = serializers.SlugField()
     product = serializers.UUIDField(required=False)
     service = serializers.UUIDField(required=False)
-
-
-class ProductUploadSerializer(ChatbotScopeMixin):
-    file = serializers.FileField()
-
-    def validate_file(self, file_obj):
-        from knowledge.services.catalog import parse_product_upload
-
-        if not file_obj.name or not file_obj.name.lower().endswith((".csv", ".xlsx")):
-            raise serializers.ValidationError(
-                "Upload the filled template as CSV or XLSX."
-            )
-        return file_obj
 
 
 class ServiceSerializer(serializers.ModelSerializer):
@@ -194,6 +192,17 @@ class ServiceUpdateSerializer(ServiceSerializer):
     pass
 
 
+class ServiceUploadSerializer(ChatbotScopeMixin):
+    file = serializers.FileField()
+
+    def validate_file(self, file_obj):
+        if not file_obj.name or not file_obj.name.lower().endswith((".csv", ".xlsx")):
+            raise serializers.ValidationError(
+                "Upload the filled template as CSV or XLSX."
+            )
+        return file_obj
+
+
 class KnowledgeTrainSerializer(serializers.Serializer):
     force = serializers.BooleanField(required=False, default=False)
 
@@ -221,10 +230,11 @@ class TrainingLogSerializer(serializers.ModelSerializer):
 
 class KnowledgeSearchSerializer(ChatbotScopeMixin):
     query = serializers.CharField(max_length=1000)
-    type = serializers.ChoiceField(
+    source = serializers.ChoiceField(
         choices=KnowledgeSpaceTypes.choices,
         required=False,
         allow_null=True,
         default=None,
+        help_text="Knowledge space to search: document (base), product, or service.",
     )
     limit = serializers.IntegerField(required=False, default=8, min_value=1, max_value=50)

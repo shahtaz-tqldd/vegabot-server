@@ -1,15 +1,24 @@
 import asyncio
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import ANY, patch
 
 from asgiref.sync import async_to_sync
+from django.conf import settings
 from django.test import SimpleTestCase, override_settings
 
-from agent.helpers.model import ChatGemini, vertex_client, vertex_client_scope
+from agent.helpers.model import (
+    ChatGemini,
+    build_speech_config,
+    live_model,
+    vertex_client,
+    vertex_client_scope,
+)
 
 
 class LoopBoundClient:
     """A transport that fails if it is reused or closed on another loop."""
+
+    vertexai = True  # ADK's live client probes this on the shared api_client.
 
     def __init__(self, **kwargs):
         self.loop = asyncio.get_running_loop()
@@ -98,3 +107,74 @@ class VertexClientLifetimeTests(SimpleTestCase):
         async with vertex_client_scope():
             pass
         self.factory.assert_not_called()
+
+    async def test_scope_location_override_used_for_client(self):
+        @override_settings(GOOGLE_CLOUD_LIVE_CHAT_LOCATION="live-location")
+        async def live_turn():
+            async with vertex_client_scope(
+                location=settings.GOOGLE_CLOUD_LIVE_CHAT_LOCATION,
+            ):
+                client = vertex_client()
+                client.request()
+                return client
+
+        client = await live_turn()
+        self.factory.assert_called_with(
+            vertexai=True, project="test-project", location="live-location",
+        )
+        self.assertTrue(client.async_closed)
+
+    async def test_live_api_client_uses_scope_location_and_closes_with_scope(self):
+        @override_settings(GOOGLE_CLOUD_LIVE_CHAT_LOCATION="us-central1")
+        async def live_turn():
+            async with vertex_client_scope(
+                location=settings.GOOGLE_CLOUD_LIVE_CHAT_LOCATION,
+            ):
+                model = ChatGemini(model="gemini-3.8-live")
+                live_client = model._live_api_client
+                live_client.request()
+                return live_client
+
+        client = await live_turn()
+        self.factory.assert_called_with(
+            vertexai=True,
+            project="test-project",
+            location="us-central1",
+            http_options=ANY,
+        )
+        self.assertTrue(client.async_closed)
+        self.assertTrue(client.sync_closed)
+
+
+class LiveModelVoiceTests(SimpleTestCase):
+    @override_settings(
+        GEMINI_LIVE_CHAT_MODEL="gemini-3.8-live",
+        GEMINI_LIVE_CHAT_VOICE="Puck",
+    )
+    def test_defaults_from_settings(self):
+        model = live_model()
+        self.assertEqual(model.model, "gemini-3.8-live")
+        self.assertEqual(
+            model.speech_config.voice_config.prebuilt_voice_config.voice_name,
+            "Puck",
+        )
+
+    @override_settings(
+        GEMINI_LIVE_CHAT_MODEL="gemini-3.8-live",
+        GEMINI_LIVE_CHAT_VOICE="Puck",
+    )
+    def test_model_config_overrides_voice_and_model(self):
+        model = live_model(model_config={
+            "model_name": "custom-live-model",
+            "voice_name": "Aoede",
+        })
+        self.assertEqual(model.model, "custom-live-model")
+        self.assertEqual(
+            model.speech_config.voice_config.prebuilt_voice_config.voice_name,
+            "Aoede",
+        )
+
+    @override_settings(GEMINI_LIVE_CHAT_VOICE="")
+    def test_empty_voice_keeps_api_default(self):
+        self.assertIsNone(build_speech_config(None))
+        self.assertIsNone(build_speech_config(""))

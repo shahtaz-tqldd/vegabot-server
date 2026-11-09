@@ -3,6 +3,7 @@ import io
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APITestCase
@@ -16,21 +17,18 @@ from .fakes import FakeVectorService, fake_training_stack
 User = get_user_model()
 
 PRODUCT_TEMPLATE_URL = reverse("product-template")
-PRODUCT_UPLOAD_URL = reverse("product-upload")
-PRODUCT_CREATE_URL = reverse("product-create")
+PRODUCT_IMPORT_URL = reverse("product-import")
 PRODUCT_LIST_URL = reverse("product-list")
-PRODUCT_DETAILS_URL = reverse("product-detail")
+PRODUCT_DISABLE_URL = reverse("product-disable")
 PRODUCT_UPDATE_URL = reverse("product-update")
-PRODUCT_DELETE_URL = reverse("product-delete")
-PRODUCT_TRAIN_URL = reverse("product-train")
 
+SERVICE_TEMPLATE_URL = reverse("service-template")
+SERVICE_IMPORT_URL = reverse("service-import")
 SERVICE_CREATE_URL = reverse("service-create")
 SERVICE_BULK_CREATE_URL = reverse("service-bulk-create")
 SERVICE_LIST_URL = reverse("service-list")
-SERVICE_DETAILS_URL = reverse("service-detail")
 SERVICE_UPDATE_URL = reverse("service-update")
 SERVICE_DELETE_URL = reverse("service-delete")
-SERVICE_TRAIN_URL = reverse("service-train")
 
 LOGS_URL = reverse("knowledge-training-log-list")
 
@@ -78,55 +76,20 @@ class KnowledgeTestBase(APITestCase):
         defaults.update(kwargs)
         return Product.objects.create(**defaults)
 
-
-class ProductCRUDTests(KnowledgeTestBase):
-    def test_create_product(self):
-        response = self.client.post(
-            PRODUCT_CREATE_URL,
-            {
-                "chatbot": self.chatbot.slug,
-                "name": "Mechanical Keyboard",
-                "sku": "MK-002",
-                "price": "89.00",
-                "category": "Accessories",
-                "description": "Hot-swappable switches.",
-            },
-            format="json",
+    def csv_file(self, rows, filename="catalog.csv"):
+        buffer = io.StringIO()
+        writer = csv.DictWriter(buffer, fieldnames=list(rows[0].keys()))
+        writer.writeheader()
+        writer.writerows(rows)
+        buffer.seek(0)
+        return SimpleUploadedFile(
+            filename,
+            buffer.getvalue().encode(),
+            content_type="text/csv",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(response.data["data"]["status"], StatusTypes.PENDING)
-        product = Product.objects.get(pk=response.data["data"]["id"])
-        self.assertEqual(product.chatbot, self.chatbot)
-        self.assertEqual(str(product.price), "89.00")
 
-    def test_create_rejects_duplicate_sku(self):
-        self.create_product(sku="WM-001")
-
-        response = self.client.post(
-            PRODUCT_CREATE_URL,
-            {
-                "chatbot": self.chatbot.slug,
-                "name": "Mouse Clone",
-                "sku": "wm-001",
-            },
-            format="json",
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-
-    def test_create_rejected_for_foreign_chatbot(self):
-        response = self.client.post(
-            PRODUCT_CREATE_URL,
-            {
-                "chatbot": self.other_chatbot.slug,
-                "name": "Not Mine",
-            },
-            format="json",
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-
+class ProductAPITests(KnowledgeTestBase):
     def test_paginated_product_list_scoped_to_chatbot(self):
         self.create_product(name="A", sku="A1")
         self.create_product(name="B", sku="B1")
@@ -145,50 +108,6 @@ class ProductCRUDTests(KnowledgeTestBase):
         self.assertEqual(sorted(names), ["A", "B"])
         self.assertEqual(response.data["meta"]["count"], 2)
 
-    def test_product_details(self):
-        product = self.create_product()
-
-        response = self.client.get(
-            PRODUCT_DETAILS_URL,
-            {"chatbot": self.chatbot.slug, "product": product.pk},
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.data["data"]["sku"], "WM-001")
-
-    def test_product_update_marks_pending_retrain(self):
-        product = self.create_product(status=StatusTypes.READY)
-
-        response = self.client.patch(
-            f"{PRODUCT_UPDATE_URL}?chatbot={self.chatbot.slug}&product={product.pk}",
-            {"price": "24.99"},
-            format="json",
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        product.refresh_from_db()
-        self.assertEqual(str(product.price), "24.99")
-        self.assertEqual(product.status, StatusTypes.PENDING)
-
-    def test_product_delete_removes_vector(self):
-        product = self.create_product()
-        vector_service = FakeVectorService()
-
-        with patch(
-            "knowledge.api.v1.client.views.KnowledgeVectorService",
-            return_value=vector_service,
-        ):
-            response = self.client.delete(
-                f"{PRODUCT_DELETE_URL}?chatbot={self.chatbot.slug}&product={product.pk}",
-            )
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertFalse(Product.objects.filter(pk=product.pk).exists())
-        self.assertEqual(
-            vector_service.removed_catalog_items,
-            [(KnowledgeSpaceTypes.PRODUCT, product.pk)],
-        )
-
     def test_foreign_chatbot_scoping(self):
         response = self.client.get(
             PRODUCT_LIST_URL, {"chatbot": self.other_chatbot.slug},
@@ -196,8 +115,86 @@ class ProductCRUDTests(KnowledgeTestBase):
 
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
+    def test_update_retrains_product(self):
+        product = self.create_product(status=StatusTypes.READY)
 
-class ProductTemplateAndUploadTests(KnowledgeTestBase):
+        with fake_training_stack() as vector_service:
+            response = self.client.patch(
+                f"{PRODUCT_UPDATE_URL}?chatbot={self.chatbot.slug}&product={product.pk}",
+                {"price": "24.99"},
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        product.refresh_from_db()
+        self.assertEqual(str(product.price), "24.99")
+        # The update queued training and the eager run retrained the item.
+        self.assertEqual(product.status, StatusTypes.READY)
+        space, item_ids, _ = vector_service.catalog_replacements[0]
+        self.assertEqual(space, KnowledgeSpaceTypes.PRODUCT)
+        self.assertEqual(item_ids, [product.pk])
+        self.assertIsNotNone(response.data["data"]["training_log"])
+
+    def test_update_rejects_duplicate_sku(self):
+        self.create_product(sku="WM-001")
+        other = self.create_product(name="Clone target", sku="OTHER-1")
+
+        response = self.client.patch(
+            f"{PRODUCT_UPDATE_URL}?chatbot={self.chatbot.slug}&product={other.pk}",
+            {"sku": "wm-001"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_disable_multiple_products_removes_vectors(self):
+        first = self.create_product()
+        second = self.create_product(name="USB Hub", sku="UH-100")
+        vector_service = FakeVectorService()
+
+        with patch(
+            "knowledge.api.v1.client.views.KnowledgeVectorService",
+            return_value=vector_service,
+        ):
+            response = self.client.post(
+                PRODUCT_DISABLE_URL,
+                {
+                    "chatbot": self.chatbot.slug,
+                    "products": [str(first.pk), str(second.pk)],
+                },
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["data"]["disabled_count"], 2)
+        first.refresh_from_db()
+        second.refresh_from_db()
+        self.assertFalse(first.is_enabled)
+        self.assertFalse(second.is_enabled)
+        self.assertEqual(
+            sorted(vector_service.removed_catalog_items),
+            sorted(
+                [
+                    (KnowledgeSpaceTypes.PRODUCT, first.pk),
+                    (KnowledgeSpaceTypes.PRODUCT, second.pk),
+                ]
+            ),
+        )
+
+    def test_disable_rejects_unknown_products(self):
+        self.create_product()
+        missing_id = "00000000-0000-0000-0000-000000000000"
+
+        response = self.client.post(
+            PRODUCT_DISABLE_URL,
+            {"chatbot": self.chatbot.slug, "products": [missing_id]},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+
+class ProductTemplateAndImportTests(KnowledgeTestBase):
     def test_download_template(self):
         response = self.client.get(PRODUCT_TEMPLATE_URL)
 
@@ -219,24 +216,8 @@ class ProductTemplateAndUploadTests(KnowledgeTestBase):
         )
         self.assertGreaterEqual(len(rows), 1)
 
-    def _csv_file(self, rows):
-        buffer = io.StringIO()
-        writer = csv.DictWriter(
-            buffer,
-            fieldnames=[
-                "name", "sku", "category", "description",
-                "price", "currency", "product_url",
-            ],
-        )
-        writer.writeheader()
-        writer.writerows(rows)
-        buffer.seek(0)
-        return buffer.getvalue()
-
-    def test_upload_csv_creates_products_and_trains(self):
-        from django.core.files.uploadedfile import SimpleUploadedFile
-
-        csv_content = self._csv_file(
+    def test_import_csv_creates_products_and_trains(self):
+        csv_content = self.csv_file(
             [
                 {
                     "name": "USB Hub",
@@ -247,21 +228,17 @@ class ProductTemplateAndUploadTests(KnowledgeTestBase):
                     "currency": "usd",
                     "product_url": "https://example.com/uh-100",
                 },
-                {"name": "", "sku": "BAD"},
-                {"name": "No Price", "sku": "", "category": "Misc"},
+                {"name": "", "sku": "BAD", "category": "", "description": "", "price": "", "currency": "", "product_url": ""},
+                {"name": "No Price", "sku": "", "category": "Misc", "description": "", "price": "", "currency": "", "product_url": ""},
             ]
         )
 
         with fake_training_stack() as vector_service:
             response = self.client.post(
-                PRODUCT_UPLOAD_URL,
+                PRODUCT_IMPORT_URL,
                 {
                     "chatbot": self.chatbot.slug,
-                    "file": SimpleUploadedFile(
-                        "products.csv",
-                        csv_content.encode(),
-                        content_type="text/csv",
-                    ),
+                    "file": csv_content,
                 },
                 format="multipart",
             )
@@ -284,11 +261,9 @@ class ProductTemplateAndUploadTests(KnowledgeTestBase):
             any("USB Hub" in content and "19.50 USD" in content for content in contents),
         )
 
-    def test_upload_rejects_unsupported_type(self):
-        from django.core.files.uploadedfile import SimpleUploadedFile
-
+    def test_import_rejects_unsupported_type(self):
         response = self.client.post(
-            PRODUCT_UPLOAD_URL,
+            PRODUCT_IMPORT_URL,
             {
                 "chatbot": self.chatbot.slug,
                 "file": SimpleUploadedFile(
@@ -300,21 +275,27 @@ class ProductTemplateAndUploadTests(KnowledgeTestBase):
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
-    def test_upload_skips_duplicate_skus(self):
-        from django.core.files.uploadedfile import SimpleUploadedFile
-
+    def test_import_skips_duplicate_skus(self):
         self.create_product(sku="WM-001")
-        csv_content = self._csv_file(
-            [{"name": "Clone", "sku": "WM-001", "price": "1.00"}],
+        csv_content = self.csv_file(
+            [
+                {
+                    "name": "Clone",
+                    "sku": "WM-001",
+                    "category": "",
+                    "description": "",
+                    "price": "1.00",
+                    "currency": "",
+                    "product_url": "",
+                }
+            ],
         )
-        with fake_training_stack() as vector_service:
+        with fake_training_stack():
             response = self.client.post(
-                PRODUCT_UPLOAD_URL,
+                PRODUCT_IMPORT_URL,
                 {
                     "chatbot": self.chatbot.slug,
-                    "file": SimpleUploadedFile(
-                        "products.csv", csv_content.encode(), content_type="text/csv",
-                    ),
+                    "file": csv_content,
                 },
                 format="multipart",
             )
@@ -325,6 +306,65 @@ class ProductTemplateAndUploadTests(KnowledgeTestBase):
 
 
 class ServiceAPITests(KnowledgeTestBase):
+    def test_download_service_template(self):
+        response = self.client.get(SERVICE_TEMPLATE_URL)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response["Content-Type"], "text/csv")
+        rows = list(csv.DictReader(io.StringIO(response.content.decode())))
+        self.assertEqual(
+            list(rows[0].keys()),
+            ["name", "service_type", "description", "cost", "currency"],
+        )
+        self.assertGreaterEqual(len(rows), 1)
+
+    def test_import_csv_creates_services_and_trains(self):
+        csv_content = self.csv_file(
+            [
+                {
+                    "name": "Laptop Repair",
+                    "service_type": "repair",
+                    "description": "Screen and battery replacement.",
+                    "cost": "75.00",
+                    "currency": "usd",
+                },
+                {
+                    "name": "",
+                    "service_type": "",
+                    "description": "",
+                    "cost": "",
+                    "currency": "",
+                },
+            ],
+            filename="services.csv",
+        )
+
+        with fake_training_stack() as vector_service:
+            response = self.client.post(
+                SERVICE_IMPORT_URL,
+                {
+                    "chatbot": self.chatbot.slug,
+                    "file": csv_content,
+                },
+                format="multipart",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        data = response.data["data"]
+        self.assertEqual(data["created_count"], 1)
+        self.assertEqual(len(data["errors"]), 1)
+
+        service = Service.objects.get(chatbot=self.chatbot, name="Laptop Repair")
+        self.assertEqual(service.status, StatusTypes.READY)
+
+        space, item_ids, documents = vector_service.catalog_replacements[0]
+        self.assertEqual(space, KnowledgeSpaceTypes.SERVICE)
+        self.assertEqual(item_ids, [service.pk])
+        contents = [document.content for document in documents]
+        self.assertTrue(
+            any("Cost: 75.00 USD" in content for content in contents),
+        )
+
     def test_create_service(self):
         response = self.client.post(
             SERVICE_CREATE_URL,
@@ -379,7 +419,7 @@ class ServiceAPITests(KnowledgeTestBase):
             any("Cost: 120.00 USD" in content for content in contents),
         )
 
-    def test_list_details_update_delete(self):
+    def test_list_update_and_delete(self):
         service = Service.objects.create(
             chatbot=self.chatbot,
             name="Cleaning",
@@ -393,20 +433,18 @@ class ServiceAPITests(KnowledgeTestBase):
         )
         self.assertEqual(response.data["meta"]["count"], 1)
 
-        response = self.client.get(
-            SERVICE_DETAILS_URL,
-            {"chatbot": self.chatbot.slug, "service": service.pk},
-        )
-        self.assertEqual(response.data["data"]["name"], "Cleaning")
-
-        response = self.client.patch(
-            f"{SERVICE_UPDATE_URL}?chatbot={self.chatbot.slug}&service={service.pk}",
-            {"cost": "35.00"},
-            format="json",
-        )
+        with fake_training_stack() as vector_service:
+            response = self.client.patch(
+                f"{SERVICE_UPDATE_URL}?chatbot={self.chatbot.slug}&service={service.pk}",
+                {"cost": "35.00"},
+                format="json",
+            )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
         service.refresh_from_db()
         self.assertEqual(str(service.cost), "35.00")
-        self.assertEqual(service.status, StatusTypes.PENDING)
+        # The update queued training and the eager run retrained the item.
+        self.assertEqual(service.status, StatusTypes.READY)
+        self.assertEqual(len(vector_service.catalog_replacements), 1)
 
         vector_service = FakeVectorService()
         with patch(
@@ -418,6 +456,10 @@ class ServiceAPITests(KnowledgeTestBase):
             )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertFalse(Service.objects.filter(pk=service.pk).exists())
+        self.assertEqual(
+            vector_service.removed_catalog_items,
+            [(KnowledgeSpaceTypes.SERVICE, service.pk)],
+        )
 
 
 class TrainingLogTests(KnowledgeTestBase):
@@ -439,20 +481,3 @@ class TrainingLogTests(KnowledgeTestBase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data["meta"]["count"], 1)
         self.assertEqual(response.data["data"][0]["space"], "product")
-
-    def test_product_train_endpoint(self):
-        self.create_product()
-        with fake_training_stack() as vector_service:
-            response = self.client.post(
-                f"{PRODUCT_TRAIN_URL}?chatbot={self.chatbot.slug}",
-                {},
-                format="json",
-            )
-
-        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
-        # The API answers with the queued log; the eager run itself is
-        # recorded on the database row.
-        self.assertEqual(response.data["data"]["stage"], "queued")
-        log = KnowledgeTrainingLog.objects.get(pk=response.data["data"]["id"])
-        self.assertEqual(log.stage, "completed")
-        self.assertEqual(len(vector_service.catalog_replacements), 1)

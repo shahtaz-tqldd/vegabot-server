@@ -1,4 +1,4 @@
-"""Product/service catalog helpers: template, import parsing, and the
+"""Product/service catalog helpers: templates, import parsing, and the
 structured text/metadata builders used for vector training."""
 
 import csv
@@ -39,22 +39,65 @@ PRODUCT_TEMPLATE_SAMPLE_ROWS = [
     },
 ]
 
+SERVICE_TEMPLATE_COLUMNS = [
+    "name",
+    "service_type",
+    "description",
+    "cost",
+    "currency",
+]
+
+SERVICE_TEMPLATE_SAMPLE_ROWS = [
+    {
+        "name": "Laptop Repair",
+        "service_type": "repair",
+        "description": "Screen and battery replacement.",
+        "cost": "75.00",
+        "currency": "USD",
+    },
+    {
+        "name": "IT Consulting",
+        "service_type": "consulting",
+        "description": "One hour of on-site technical consulting.",
+        "cost": "120.00",
+        "currency": "USD",
+    },
+]
+
 MAX_IMPORT_ROWS = 5000
 VALID_CURRENCIES = {"USD", "EUR", "GBP", "BDT", "INR", "AUD", "CAD", "JPY"}
 
 
-class ProductImportError(ValueError):
+class CatalogImportError(ValueError):
     pass
 
 
-def build_product_template_csv():
+# Historical name kept for callers that predate the shared catalog import.
+ProductImportError = CatalogImportError
+
+
+def build_catalog_template_csv(columns, sample_rows):
     """The downloadable CSV template users fill and re-upload."""
     buffer = io.StringIO()
-    writer = csv.DictWriter(buffer, fieldnames=PRODUCT_TEMPLATE_COLUMNS)
+    writer = csv.DictWriter(buffer, fieldnames=columns)
     writer.writeheader()
-    for row in PRODUCT_TEMPLATE_SAMPLE_ROWS:
+    for row in sample_rows:
         writer.writerow(row)
     return buffer.getvalue()
+
+
+def build_product_template_csv():
+    return build_catalog_template_csv(
+        PRODUCT_TEMPLATE_COLUMNS,
+        PRODUCT_TEMPLATE_SAMPLE_ROWS,
+    )
+
+
+def build_service_template_csv():
+    return build_catalog_template_csv(
+        SERVICE_TEMPLATE_COLUMNS,
+        SERVICE_TEMPLATE_SAMPLE_ROWS,
+    )
 
 
 def build_product_text(product):
@@ -109,39 +152,57 @@ def build_service_metadata(service):
     }
 
 
-def _normalize_row(row, row_number):
-    cleaned = {
+def _clean_row(row):
+    return {
         (key or "").strip().lower(): (value if value is not None else "")
         for key, value in row.items()
     }
-    unknown = set(cleaned) - set(PRODUCT_TEMPLATE_COLUMNS) - {""}
+
+
+def _reject_unknown_columns(cleaned, columns, row_number):
+    unknown = set(cleaned) - set(columns) - {""}
     if unknown:
-        raise ProductImportError(
+        raise CatalogImportError(
             f"Row {row_number}: unknown column(s): {', '.join(sorted(unknown))}. "
             "Download the template for the expected format.",
         )
 
+
+def _parse_amount(raw, *, field, row_number):
+    try:
+        amount = Decimal(raw)
+    except InvalidOperation as exc:
+        raise CatalogImportError(
+            f"Row {row_number}: invalid {field} '{raw}'.",
+        ) from exc
+    if amount < 0:
+        raise CatalogImportError(
+            f"Row {row_number}: {field} cannot be negative.",
+        )
+    return amount
+
+
+def _parse_currency(raw, row_number):
+    currency = str(raw).strip().upper() or "USD"
+    if len(currency) != 3 or not currency.isalpha():
+        raise CatalogImportError(
+            f"Row {row_number}: currency must be a 3-letter code (e.g. USD).",
+        )
+    return currency
+
+
+def _normalize_product_row(row, row_number):
+    cleaned = _clean_row(row)
+    _reject_unknown_columns(cleaned, PRODUCT_TEMPLATE_COLUMNS, row_number)
+
     name = cleaned.get("name", "").strip()
     if not name:
-        raise ProductImportError(f"Row {row_number}: 'name' is required.")
+        raise CatalogImportError(f"Row {row_number}: 'name' is required.")
 
     price_raw = str(cleaned.get("price", "")).strip()
     price = None
     if price_raw:
-        try:
-            price = Decimal(price_raw)
-        except InvalidOperation as exc:
-            raise ProductImportError(
-                f"Row {row_number}: invalid price '{price_raw}'.",
-            ) from exc
-        if price < 0:
-            raise ProductImportError(f"Row {row_number}: price cannot be negative.")
-
-    currency = str(cleaned.get("currency", "")).strip().upper() or "USD"
-    if len(currency) != 3 or not currency.isalpha():
-        raise ProductImportError(
-            f"Row {row_number}: currency must be a 3-letter code (e.g. USD).",
-        )
+        price = _parse_amount(price_raw, field="price", row_number=row_number)
 
     return {
         "name": name[:255],
@@ -149,8 +210,30 @@ def _normalize_row(row, row_number):
         "category": str(cleaned.get("category", "")).strip()[:120],
         "description": str(cleaned.get("description", "")).strip(),
         "price": price,
-        "currency": currency,
+        "currency": _parse_currency(cleaned.get("currency", ""), row_number),
         "product_url": str(cleaned.get("product_url", "")).strip(),
+    }
+
+
+def _normalize_service_row(row, row_number):
+    cleaned = _clean_row(row)
+    _reject_unknown_columns(cleaned, SERVICE_TEMPLATE_COLUMNS, row_number)
+
+    name = cleaned.get("name", "").strip()
+    if not name:
+        raise CatalogImportError(f"Row {row_number}: 'name' is required.")
+
+    cost_raw = str(cleaned.get("cost", "")).strip()
+    cost = None
+    if cost_raw:
+        cost = _parse_amount(cost_raw, field="cost", row_number=row_number)
+
+    return {
+        "name": name[:255],
+        "service_type": str(cleaned.get("service_type", "")).strip()[:120],
+        "description": str(cleaned.get("description", "")).strip(),
+        "cost": cost,
+        "currency": _parse_currency(cleaned.get("currency", ""), row_number),
     }
 
 
@@ -179,38 +262,51 @@ def _rows_from_xlsx(file_obj):
         workbook.close()
 
 
-def parse_product_upload(file_obj):
-    """Parse an uploaded CSV/XLSX product sheet.
-
-    Returns ``(products_data, errors)`` where valid rows are dictionaries
-    ready for ``Product.objects.create`` and errors are per-row messages.
-    """
+def _parse_catalog_upload(file_obj, normalize_row):
     suffix = Path(file_obj.name or "").suffix.lower()
     if suffix == ".xlsx":
         rows = _rows_from_xlsx(file_obj)
     elif suffix == ".csv":
         rows = _rows_from_csv(file_obj)
     else:
-        raise ProductImportError(
+        raise CatalogImportError(
             "Unsupported file type. Upload the template as CSV or XLSX.",
         )
 
     if len(rows) > MAX_IMPORT_ROWS:
-        raise ProductImportError(
+        raise CatalogImportError(
             f"Import cannot exceed {MAX_IMPORT_ROWS} rows.",
         )
     if not rows:
-        raise ProductImportError("The uploaded file contains no data rows.")
+        raise CatalogImportError("The uploaded file contains no data rows.")
     if settings.KNOWLEDGE_MAX_CSV_ROWS and len(rows) > settings.KNOWLEDGE_MAX_CSV_ROWS:
-        raise ProductImportError(
+        raise CatalogImportError(
             f"Import cannot exceed {settings.KNOWLEDGE_MAX_CSV_ROWS} rows.",
         )
 
-    products_data = []
+    items_data = []
     errors = []
     for row_number, row in enumerate(rows, start=2):
         try:
-            products_data.append(_normalize_row(row, row_number))
-        except ProductImportError as exc:
+            items_data.append(normalize_row(row, row_number))
+        except CatalogImportError as exc:
             errors.append(str(exc))
-    return products_data, errors
+    return items_data, errors
+
+
+def parse_product_upload(file_obj):
+    """Parse an uploaded CSV/XLSX product sheet.
+
+    Returns ``(products_data, errors)`` where valid rows are dictionaries
+    ready for ``Product.objects.create`` and errors are per-row messages.
+    """
+    return _parse_catalog_upload(file_obj, _normalize_product_row)
+
+
+def parse_service_upload(file_obj):
+    """Parse an uploaded CSV/XLSX service sheet.
+
+    Returns ``(services_data, errors)`` where valid rows are dictionaries
+    ready for ``Service.objects.create`` and errors are per-row messages.
+    """
+    return _parse_catalog_upload(file_obj, _normalize_service_row)

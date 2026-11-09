@@ -12,12 +12,12 @@ from knowledge.api.v1.client.serializers import (
     ChatbotQuerySerializer,
     KnowledgeDocumentQuerySerializer,
     KnowledgeDocumentSerializer,
-    KnowledgeDocumentUpdateSerializer,
+    KnowledgeDocumentTextSerializer,
     KnowledgeDocumentUploadSerializer,
     KnowledgeDocumentWebsiteSerializer,
     KnowledgeSearchSerializer,
     KnowledgeTrainSerializer,
-    ProductCreateSerializer,
+    ProductDisableSerializer,
     ProductSerializer,
     ProductUpdateSerializer,
     ProductUploadSerializer,
@@ -25,6 +25,7 @@ from knowledge.api.v1.client.serializers import (
     ServiceCreateSerializer,
     ServiceSerializer,
     ServiceUpdateSerializer,
+    ServiceUploadSerializer,
     TrainingLogSerializer,
 )
 from knowledge.models import (
@@ -34,15 +35,17 @@ from knowledge.models import (
     Service,
 )
 from knowledge.services.catalog import (
-    ProductImportError,
+    CatalogImportError,
     build_product_template_csv,
+    build_service_template_csv,
     parse_product_upload,
+    parse_service_upload,
 )
 from knowledge.services.search import search_knowledge
 from knowledge.services.training import queue_training
 from knowledge.utils.choices import (
+    KnowledgeSourceTypes,
     KnowledgeSpaceTypes,
-    KnowledgeTrainingStageTypes,
     StatusTypes,
 )
 from vector_store.services.vectorize import KnowledgeVectorService
@@ -132,10 +135,12 @@ def _queue_catalog_training(chatbot, space):
     )
 
 
-# --------------------------------------------------------------- documents
+# ---------------------------------------------------------------- base sources
 
 
 class KnowledgeDocumentUploadView(GenericAPIView):
+    """Add a base-knowledge file source (PDF, DOCX, XLSX, ...)."""
+
     permission_classes = [IsAuthenticated]
     serializer_class = KnowledgeDocumentUploadSerializer
 
@@ -157,7 +162,7 @@ class KnowledgeDocumentUploadView(GenericAPIView):
         document = KnowledgeBase.objects.create(
             chatbot=chatbot,
             title=serializer.validated_data.get("title", ""),
-            source_type="file",
+            source_type=KnowledgeSourceTypes.FILE,
             original_filename=uploaded_file.name,
             file_type=(uploaded_file.name or "").rsplit(".", 1)[-1].lower(),
             file_key=file_key,
@@ -168,12 +173,14 @@ class KnowledgeDocumentUploadView(GenericAPIView):
         _queue_document_training(document)
         return APIResponse.success(
             data=KnowledgeDocumentSerializer(document).data,
-            message="Document uploaded and queued for training.",
+            message="File uploaded and queued for training.",
             status=status.HTTP_201_CREATED,
         )
 
 
 class KnowledgeDocumentWebsiteView(GenericAPIView):
+    """Add a base-knowledge URL source that is scraped and trained."""
+
     permission_classes = [IsAuthenticated]
     serializer_class = KnowledgeDocumentWebsiteSerializer
 
@@ -185,7 +192,7 @@ class KnowledgeDocumentWebsiteView(GenericAPIView):
         document = KnowledgeBase.objects.create(
             chatbot=chatbot,
             title=serializer.validated_data.get("title", ""),
-            source_type="website",
+            source_type=KnowledgeSourceTypes.WEBSITE,
             url=serializer.validated_data["url"],
             status=StatusTypes.PENDING,
             created_by=request.user,
@@ -193,7 +200,34 @@ class KnowledgeDocumentWebsiteView(GenericAPIView):
         _queue_document_training(document)
         return APIResponse.success(
             data=KnowledgeDocumentSerializer(document).data,
-            message="Website added and queued for training.",
+            message="URL added and queued for training.",
+            status=status.HTTP_201_CREATED,
+        )
+
+
+class KnowledgeDocumentTextView(GenericAPIView):
+    """Add a base-knowledge text source from raw content."""
+
+    permission_classes = [IsAuthenticated]
+    serializer_class = KnowledgeDocumentTextSerializer
+
+    def post(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        chatbot = serializer.validated_data["chatbot"]
+
+        document = KnowledgeBase.objects.create(
+            chatbot=chatbot,
+            title=serializer.validated_data.get("title", ""),
+            source_type=KnowledgeSourceTypes.TEXT,
+            extracted_content=serializer.validated_data["content"],
+            status=StatusTypes.PENDING,
+            created_by=request.user,
+        )
+        _queue_document_training(document)
+        return APIResponse.success(
+            data=KnowledgeDocumentSerializer(document).data,
+            message="Text added and queued for training.",
             status=status.HTTP_201_CREATED,
         )
 
@@ -208,42 +242,42 @@ class KnowledgeDocumentListView(PaginatedListMixin, KnowledgeScopedMixin, Generi
         status_param = self.request.query_params.get("status")
         if status_param:
             queryset = queryset.filter(status=status_param)
+        source_param = self.request.query_params.get("source_type")
+        if source_param:
+            queryset = queryset.filter(source_type=source_param)
         return queryset
 
     def get(self, request, *args, **kwargs):
         return self.paginated_response(
             self.get_queryset(),
-            message="Documents fetched successfully.",
+            message="Knowledge sources fetched successfully.",
         )
 
 
-class KnowledgeDocumentDetailView(KnowledgeDocumentMixin, GenericAPIView):
+class KnowledgeDocumentRetrainView(KnowledgeDocumentMixin, GenericAPIView):
+    """Re-scrape and retrain a URL source. Files and text are immutable;
+    replace them by deleting and re-adding."""
+
     permission_classes = [IsAuthenticated]
-    serializer_class = KnowledgeDocumentSerializer
+    serializer_class = KnowledgeTrainSerializer
 
-    def get(self, request, *args, **kwargs):
+    def post(self, request, *args, **kwargs):
         document = self.get_document(self.get_scoped_chatbot())
-        return APIResponse.success(
-            data=self.get_serializer(document).data,
-            message="Document fetched successfully.",
-        )
-
-
-class KnowledgeDocumentUpdateView(KnowledgeDocumentMixin, GenericAPIView):
-    permission_classes = [IsAuthenticated]
-    serializer_class = KnowledgeDocumentUpdateSerializer
-
-    def patch(self, request, *args, **kwargs):
-        document = self.get_document(self.get_scoped_chatbot())
-        serializer = self.get_serializer(document, data=request.data, partial=True)
+        if document.source_type != KnowledgeSourceTypes.WEBSITE:
+            return validation_error_response(
+                {"document": "Only URL sources can be retrained."},
+                "Retrain is only available for URL sources.",
+            )
+        serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        for field, value in serializer.validated_data.items():
-            setattr(document, field, value)
-        document.updated_by = request.user
-        document.save(update_fields=[*serializer.validated_data.keys(), "updated_by", "updated_at"])
+        log = _queue_document_training(
+            document,
+            force=serializer.validated_data["force"],
+        )
         return APIResponse.success(
-            data=KnowledgeDocumentSerializer(document).data,
-            message="Document updated successfully.",
+            data=TrainingLogSerializer(log).data,
+            message="Source retraining queued.",
+            status=status.HTTP_202_ACCEPTED,
         )
 
 
@@ -263,29 +297,10 @@ class KnowledgeDocumentDeleteView(KnowledgeDocumentMixin, GenericAPIView):
             from app.services.r2 import R2Storage
 
             transaction.on_commit(lambda: R2Storage().delete(file_key))
-        return APIResponse.success(message="Document deleted successfully.")
+        return APIResponse.success(message="Knowledge source deleted successfully.")
 
 
-class KnowledgeDocumentTrainView(KnowledgeDocumentMixin, GenericAPIView):
-    permission_classes = [IsAuthenticated]
-    serializer_class = KnowledgeTrainSerializer
-
-    def post(self, request, *args, **kwargs):
-        document = self.get_document(self.get_scoped_chatbot())
-        serializer = self.get_serializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        log = _queue_document_training(
-            document,
-            force=serializer.validated_data["force"],
-        )
-        return APIResponse.success(
-            data=TrainingLogSerializer(log).data,
-            message="Document training queued.",
-            status=status.HTTP_202_ACCEPTED,
-        )
-
-
-# ---------------------------------------------------------------- products
+# ------------------------------------------------------------------- products
 
 
 class ProductTemplateView(GenericAPIView):
@@ -303,6 +318,8 @@ class ProductTemplateView(GenericAPIView):
 
 
 class ProductUploadView(GenericAPIView):
+    """Receive a filled product template (CSV or XLSX) and import it."""
+
     permission_classes = [IsAuthenticated]
     serializer_class = ProductUploadSerializer
 
@@ -314,7 +331,7 @@ class ProductUploadView(GenericAPIView):
 
         try:
             products_data, errors = parse_product_upload(uploaded_file)
-        except ProductImportError as exc:
+        except CatalogImportError as exc:
             return validation_error_response(
                 {"file": str(exc)},
                 "Product import failed.",
@@ -353,21 +370,6 @@ class ProductUploadView(GenericAPIView):
                 "errors": errors,
             },
             message="Product import completed.",
-            status=status.HTTP_201_CREATED,
-        )
-
-
-class ProductCreateView(GenericAPIView):
-    permission_classes = [IsAuthenticated]
-    serializer_class = ProductCreateSerializer
-
-    def post(self, request, *args, **kwargs):
-        serializer = self.get_serializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        product = serializer.save(created_by=request.user)
-        return APIResponse.success(
-            data=ProductSerializer(product).data,
-            message="Product created successfully.",
             status=status.HTTP_201_CREATED,
         )
 
@@ -412,19 +414,9 @@ class CatalogObjectMixin:
         )
 
 
-class ProductDetailView(CatalogObjectMixin, KnowledgeScopedMixin, GenericAPIView):
-    permission_classes = [IsAuthenticated]
-    serializer_class = ProductSerializer
-
-    def get(self, request, *args, **kwargs):
-        product = self.get_catalog_object(Product, "product")
-        return APIResponse.success(
-            data=self.get_serializer(product).data,
-            message="Product fetched successfully.",
-        )
-
-
 class ProductUpdateView(CatalogObjectMixin, KnowledgeScopedMixin, GenericAPIView):
+    """Update a product and queue an automatic retrain of its vector."""
+
     permission_classes = [IsAuthenticated]
     serializer_class = ProductUpdateSerializer
 
@@ -436,42 +428,115 @@ class ProductUpdateView(CatalogObjectMixin, KnowledgeScopedMixin, GenericAPIView
             updated_by=request.user,
             status=StatusTypes.PENDING,
         )
+        log = _queue_catalog_training(product.chatbot, KnowledgeSpaceTypes.PRODUCT)
         return APIResponse.success(
-            data=ProductSerializer(product).data,
-            message="Product updated; retrain to refresh its knowledge.",
+            data={
+                "product": ProductSerializer(product).data,
+                "training_log": TrainingLogSerializer(log).data,
+            },
+            message="Product updated and retraining queued.",
         )
 
 
-class ProductDeleteView(CatalogObjectMixin, KnowledgeScopedMixin, GenericAPIView):
+class ProductDisableView(GenericAPIView):
+    """Disable multiple products so they stop appearing in search."""
+
     permission_classes = [IsAuthenticated]
-
-    def delete(self, request, *args, **kwargs):
-        product = self.get_catalog_object(Product, "product")
-        KnowledgeVectorService().remove_catalog_item(
-            space=KnowledgeSpaceTypes.PRODUCT,
-            item_id=product.pk,
-        )
-        product.delete()
-        return APIResponse.success(message="Product deleted successfully.")
-
-
-class ProductTrainView(KnowledgeScopedMixin, GenericAPIView):
-    permission_classes = [IsAuthenticated]
-    serializer_class = KnowledgeTrainSerializer
+    serializer_class = ProductDisableSerializer
 
     def post(self, request, *args, **kwargs):
-        chatbot = self.get_scoped_chatbot()
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        log = _queue_catalog_training(chatbot, KnowledgeSpaceTypes.PRODUCT)
+        chatbot = serializer.validated_data["chatbot"]
+        product_ids = serializer.validated_data["products"]
+
+        products = list(
+            Product.objects.filter(chatbot=chatbot, pk__in=product_ids),
+        )
+        found_ids = {product.pk for product in products}
+        missing = [str(pid) for pid in product_ids if pid not in found_ids]
+        if missing:
+            return validation_error_response(
+                {"products": f"Unknown product(s): {', '.join(missing)}."},
+                "Product disable failed.",
+            )
+
+        vector_service = KnowledgeVectorService()
+        for product in products:
+            product.is_enabled = False
+            product.updated_by = request.user
+            product.save(update_fields=["is_enabled", "updated_by", "updated_at"])
+            vector_service.remove_catalog_item(
+                space=KnowledgeSpaceTypes.PRODUCT,
+                item_id=product.pk,
+            )
         return APIResponse.success(
-            data=TrainingLogSerializer(log).data,
-            message="Product training queued.",
-            status=status.HTTP_202_ACCEPTED,
+            data={
+                "disabled_count": len(products),
+                "products": ProductSerializer(products, many=True).data,
+            },
+            message="Products disabled and removed from search.",
         )
 
 
-# ---------------------------------------------------------------- services
+# ------------------------------------------------------------------- services
+
+
+class ServiceTemplateView(GenericAPIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, *args, **kwargs):
+        response = HttpResponse(
+            build_service_template_csv(),
+            content_type="text/csv",
+        )
+        response["Content-Disposition"] = (
+            'attachment; filename="dison-service-template.csv"'
+        )
+        return response
+
+
+class ServiceUploadView(GenericAPIView):
+    """Receive a filled service template (CSV or XLSX) and train from it."""
+
+    permission_classes = [IsAuthenticated]
+    serializer_class = ServiceUploadSerializer
+
+    def post(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        chatbot = serializer.validated_data["chatbot"]
+        uploaded_file = serializer.validated_data["file"]
+
+        try:
+            services_data, errors = parse_service_upload(uploaded_file)
+        except CatalogImportError as exc:
+            return validation_error_response(
+                {"file": str(exc)},
+                "Service import failed.",
+            )
+
+        created = Service.objects.bulk_create(
+            [
+                Service(
+                    chatbot=chatbot,
+                    created_by=request.user,
+                    **service_data,
+                )
+                for service_data in services_data
+            ],
+        )
+        if created:
+            _queue_catalog_training(chatbot, KnowledgeSpaceTypes.SERVICE)
+
+        return APIResponse.success(
+            data={
+                "created_count": len(created),
+                "errors": errors,
+            },
+            message="Service import completed.",
+            status=status.HTTP_201_CREATED,
+        )
 
 
 class ServiceCreateView(GenericAPIView):
@@ -544,19 +609,9 @@ class ServiceListView(PaginatedListMixin, KnowledgeScopedMixin, GenericAPIView):
         )
 
 
-class ServiceDetailView(CatalogObjectMixin, KnowledgeScopedMixin, GenericAPIView):
-    permission_classes = [IsAuthenticated]
-    serializer_class = ServiceSerializer
-
-    def get(self, request, *args, **kwargs):
-        service = self.get_catalog_object(Service, "service")
-        return APIResponse.success(
-            data=self.get_serializer(service).data,
-            message="Service fetched successfully.",
-        )
-
-
 class ServiceUpdateView(CatalogObjectMixin, KnowledgeScopedMixin, GenericAPIView):
+    """Update a service and queue an automatic retrain of its vector."""
+
     permission_classes = [IsAuthenticated]
     serializer_class = ServiceUpdateSerializer
 
@@ -568,9 +623,13 @@ class ServiceUpdateView(CatalogObjectMixin, KnowledgeScopedMixin, GenericAPIView
             updated_by=request.user,
             status=StatusTypes.PENDING,
         )
+        log = _queue_catalog_training(service.chatbot, KnowledgeSpaceTypes.SERVICE)
         return APIResponse.success(
-            data=ServiceSerializer(service).data,
-            message="Service updated; retrain to refresh its knowledge.",
+            data={
+                "service": ServiceSerializer(service).data,
+                "training_log": TrainingLogSerializer(log).data,
+            },
+            message="Service updated and retraining queued.",
         )
 
 
@@ -584,23 +643,7 @@ class ServiceDeleteView(CatalogObjectMixin, KnowledgeScopedMixin, GenericAPIView
             item_id=service.pk,
         )
         service.delete()
-        return APIResponse.success(message="Service deleted successfully.")
-
-
-class ServiceTrainView(KnowledgeScopedMixin, GenericAPIView):
-    permission_classes = [IsAuthenticated]
-    serializer_class = KnowledgeTrainSerializer
-
-    def post(self, request, *args, **kwargs):
-        chatbot = self.get_scoped_chatbot()
-        serializer = self.get_serializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        log = _queue_catalog_training(chatbot, KnowledgeSpaceTypes.SERVICE)
-        return APIResponse.success(
-            data=TrainingLogSerializer(log).data,
-            message="Service training queued.",
-            status=status.HTTP_202_ACCEPTED,
-        )
+        return APIResponse.success(message="Service removed successfully.")
 
 
 # ------------------------------------------------------------ logs + search
@@ -639,7 +682,7 @@ class KnowledgeSearchView(GenericAPIView):
         results = search_knowledge(
             serializer.validated_data["query"],
             chatbot=chatbot,
-            space=serializer.validated_data["type"],
+            space=serializer.validated_data["source"],
             limit=serializer.validated_data["limit"],
         )
         return APIResponse.success(

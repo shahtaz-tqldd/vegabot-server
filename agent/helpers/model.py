@@ -10,9 +10,13 @@ _VERTEX_CLIENT_SCOPE = ContextVar("vertex_client_scope", default=None)
 
 
 @asynccontextmanager
-async def vertex_client_scope():
-    """Own one lazy HTTP pool for a turn, and close it on its owning loop."""
-    scope = {"client": None}
+async def vertex_client_scope(location=None):
+    """Own one lazy HTTP pool for a turn, and close it on its owning loop.
+
+    ``location`` overrides the default Vertex location for every client
+    created inside the scope (live chat uses the live-chat location).
+    """
+    scope = {"client": None, "location": location}
     token = _VERTEX_CLIENT_SCOPE.set(scope)
     try:
         yield
@@ -24,6 +28,11 @@ async def vertex_client_scope():
                     await client.aio.aclose()
                 finally:
                     client.close()
+            for extra in scope.get("extra_clients") or ():
+                try:
+                    await extra.aio.aclose()
+                finally:
+                    extra.close()
         finally:
             _VERTEX_CLIENT_SCOPE.reset(token)
 
@@ -37,7 +46,7 @@ def vertex_client():
         scope["client"] = Client(
             vertexai=True,
             project=settings.GOOGLE_CLOUD_PROJECT_ID,
-            location=settings.GOOGLE_CLOUD_LOCATION,
+            location=scope["location"] or settings.GOOGLE_CLOUD_LOCATION,
         )
     return scope["client"]
 
@@ -49,21 +58,57 @@ class ChatGemini(Gemini):
     def api_client(self):
         return vertex_client()
 
+    @property
+    def _live_api_client(self):
+        """Live runs need their own client at the scope's location.
+
+        ADK's default live client carries no project/location, so live
+        requests resolve to the wrong region. Build it here the ADK way
+        (tracking headers + live api version) but with the scope's
+        location; it is closed with the scope.
+        """
+        scope = _VERTEX_CLIENT_SCOPE.get()
+        if scope is None:
+            raise RuntimeError("Vertex requests require an active vertex_client_scope.")
+        client = Client(
+            vertexai=True,
+            project=settings.GOOGLE_CLOUD_PROJECT_ID,
+            location=scope["location"] or settings.GOOGLE_CLOUD_LOCATION,
+            http_options=types.HttpOptions(
+                headers=self._tracking_headers(),
+                api_version=self._live_api_version,
+                base_url=self._base_url_and_api_version[0],
+            ),
+        )
+        scope.setdefault("extra_clients", []).append(client)
+        return client
+
 
 def chat_model():
     return ChatGemini(model=settings.GEMINI_CHAT_MODEL)
 
 
-def live_model(*, model_name=None):
-    from base.models import DisonConfig
+def live_model(*, model_config=None):
+    """The live model with its voice; ``model_config`` (DisonConfig
+    ``live_llm_model``) overrides the setting defaults."""
+    model_config = model_config if isinstance(model_config, dict) else {}
+    model_name = model_config.get("model_name") or settings.GEMINI_LIVE_CHAT_MODEL
+    speech_config = build_speech_config(model_config.get("voice_name"))
+    return ChatGemini(model=model_name, speech_config=speech_config)
 
-    configured = model_name
-    if not configured:
-        config = DisonConfig.objects.first()
-        live_config = getattr(config, "live_llm_model", None)
-        if isinstance(live_config, dict):
-            configured = live_config.get("model_name")
-    return ChatGemini(model=configured or settings.GEMINI_CHAT_MODEL)
+
+def build_speech_config(voice_name=None):
+    """Voice selection for the live agent; None keeps the API default."""
+    voice = (voice_name or settings.GEMINI_LIVE_CHAT_VOICE or "").strip()
+    if not voice:
+        return None
+    return types.SpeechConfig(
+        voice_config=types.VoiceConfig(
+            prebuilt_voice_config=types.PrebuiltVoiceConfig(
+                voice_name=voice,
+            ),
+        ),
+    )
 
 
 def generation_config(max_output_tokens=None):

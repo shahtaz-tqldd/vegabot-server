@@ -4,6 +4,7 @@ from django.db import models
 class KnowledgeSourceTypes(models.TextChoices):
     FILE = "file", "File"
     WEBSITE = "website", "Website"
+    TEXT = "text", "Text"
 
 
 class KnowledgeSpaceTypes(models.TextChoices):

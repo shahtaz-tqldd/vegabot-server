@@ -69,6 +69,8 @@ class KnowledgeBase(BaseModel):
             value = self.original_filename
         elif self.source_type == KnowledgeSourceTypes.WEBSITE:
             value = self.url or ""
+        elif self.source_type == KnowledgeSourceTypes.TEXT:
+            value = self.extracted_content or ""
         else:
             value = ""
 

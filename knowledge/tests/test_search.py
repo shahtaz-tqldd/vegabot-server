@@ -137,7 +137,7 @@ class SearchServiceTests(KnowledgeTestBase):
                 {
                     "chatbot": self.chatbot.slug,
                     "query": "how much for consulting",
-                    "type": "service",
+                    "source": "service",
                 },
                 format="json",
             )

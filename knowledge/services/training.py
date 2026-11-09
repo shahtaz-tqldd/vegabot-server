@@ -242,6 +242,11 @@ class KnowledgeTrainingService:
 
         if knowledge_base.source_type == KnowledgeSourceTypes.FILE:
             return extract_file_content(knowledge_base, storage=self.storage), ""
+        if knowledge_base.source_type == KnowledgeSourceTypes.TEXT:
+            content = (knowledge_base.extracted_content or "").strip()
+            if not content:
+                raise ValueError("The text source is empty.")
+            return content, ""
         if knowledge_base.source_type == KnowledgeSourceTypes.WEBSITE:
             validate_public_url(knowledge_base.url)
             result = asyncio.run(

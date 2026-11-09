@@ -10,6 +10,7 @@ chat messages so the session history stays complete.
 
 import asyncio
 
+from django.conf import settings
 from asgiref.sync import sync_to_async
 from google.adk.agents.run_config import RunConfig, StreamingMode
 from google.adk.runners import LiveRequestQueue, Runner
@@ -50,12 +51,19 @@ class AdkLiveAgentSession:
 
     # ------------------------------------------------------------ lifecycle
     async def start(self):
-        profile = await sync_to_async(cached_agent_profile)(self.chatbot)
-        self.agent = build_live_root_agent(
+        profile = await sync_to_async(
+            cached_agent_profile, thread_sensitive=True,
+        )(self.chatbot)
+        # build_live_root_agent reads DisonConfig via live_model(); keep
+        # every ORM access off the socket's event loop.
+        self.agent = await sync_to_async(
+            build_live_root_agent, thread_sensitive=True,
+        )(
             self.chatbot,
             self.session,
             profile=profile,
             business_policy=profile.get("policy", ""),
+            model_config=self.model_config,
         )
         session_service = build_session_service()
         app = build_app(
@@ -90,6 +98,8 @@ class AdkLiveAgentSession:
             task.cancel()
             try:
                 await task
+            except asyncio.CancelledError:
+                pass
             except Exception:
                 pass
 
@@ -126,9 +136,15 @@ class AdkLiveAgentSession:
         run_config = RunConfig(
             max_llm_calls=self.MAX_LLM_CALLS,
             streaming_mode=StreamingMode.BIDI,
+            # Stream spoken-word transcripts for both directions; without
+            # these the live API sends audio only.
+            input_audio_transcription=types.AudioTranscriptionConfig(),
+            output_audio_transcription=types.AudioTranscriptionConfig(),
         )
         try:
-            async with vertex_client_scope():
+            async with vertex_client_scope(
+                location=settings.GOOGLE_CLOUD_LIVE_CHAT_LOCATION,
+            ):
                 async for event in self.runner.run_live(
                     user_id=self.scoped_user,
                     session_id=self.adk_session.id,
@@ -164,6 +180,7 @@ class AdkLiveAgentSession:
             add_event_usage(self.usage, event.usage_metadata)
 
     async def _handle_event(self, event):
+        await self._handle_transcription_event(event)
         content = event.content
         if not content:
             return
@@ -172,29 +189,34 @@ class AdkLiveAgentSession:
             if inline and inline.data:
                 await self.consumer.send(bytes(inline.data))
             elif part.text and not getattr(part, "thought", False):
-                await self._handle_transcript(
-                    part.text,
-                    author=event.author,
-                    partial=bool(event.partial),
-                )
+                if event.author == self.agent.name and not event.partial:
+                    await self._persist_agent_reply(part.text)
+                # Streaming captions come from the transcription events;
+                # partial turn text is not duplicated to the socket.
 
-    async def _handle_transcript(self, text, *, author, partial):
+    async def _handle_transcription_event(self, event):
+        """Stream speech transcripts and persist the finals.
+
+        Input (user) transcription is the only text form user audio
+        takes, so its final becomes a stored user message. Output
+        (agent) transcription only captions the spoken audio; the
+        agent's stored reply comes from the final text content.
+        """
+        transcription = event.input_transcription or event.output_transcription
+        if transcription is None or not (transcription.text or "").strip():
+            return
+        is_user = event.input_transcription is not None
         await self.consumer.send_json({
             "type": "live.transcript",
-            "partial": partial,
-            "channel": (
-                "agent" if author == self.agent.name else "user"
-            ),
-            "text": text,
+            "partial": bool(event.partial),
+            "channel": "user" if is_user else "agent",
+            "text": transcription.text,
         })
-        if partial:
+        if event.partial or not transcription.finished:
             return
-        if author == self.agent.name:
-            await self._persist_agent_reply(text)
-        else:
-            # Final input transcription: keep the user side of the history.
+        if is_user:
             await sync_to_async(create_user_message, thread_sensitive=True)(
-                self.session, text,
+                self.session, transcription.text,
             )
 
     async def _persist_agent_reply(self, text):
