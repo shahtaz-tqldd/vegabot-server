@@ -137,6 +137,6 @@ services:
       retries: 10
 
 volumes:
-  vegabot_db_data:
+  vegabot_psql_data:
   vegabot_redis_data:
   vegabot_media_data:
