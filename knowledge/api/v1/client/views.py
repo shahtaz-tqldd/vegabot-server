@@ -312,7 +312,7 @@ class ProductTemplateView(GenericAPIView):
             content_type="text/csv",
         )
         response["Content-Disposition"] = (
-            'attachment; filename="dison-product-template.csv"'
+            'attachment; filename="vegabot-product-template.csv"'
         )
         return response
 
@@ -491,7 +491,7 @@ class ServiceTemplateView(GenericAPIView):
             content_type="text/csv",
         )
         response["Content-Disposition"] = (
-            'attachment; filename="dison-service-template.csv"'
+            'attachment; filename="vegabot-service-template.csv"'
         )
         return response
 

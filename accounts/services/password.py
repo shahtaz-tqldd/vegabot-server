@@ -28,7 +28,7 @@ def send_user_password_reset_email(user):
         "recipient_name": user.name or user.email,
         "reset_link": reset_link,
     }
-    subject = "Reset your dison Chatbot password"
+    subject = "Reset your Vegabot password"
     message = render_to_string("emails/password_reset.txt", context)
     html_message = render_to_string("emails/password_reset.html", context)
 

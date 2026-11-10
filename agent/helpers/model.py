@@ -91,7 +91,7 @@ def _as_dict(model_config):
 
 
 def model_name_for(mode, model_config=None):
-    """The model a mode runs: DisonConfig override, else the setting."""
+    """The model a mode runs: VegabotConfig override, else the setting."""
     default = (
         settings.GEMINI_LIVE_CHAT_MODEL
         if mode == ChatMode.AUDIO
@@ -101,14 +101,14 @@ def model_name_for(mode, model_config=None):
 
 
 def chat_model(*, model_config=None):
-    """The (cheap) text model; ``model_config`` is DisonConfig
+    """The (cheap) text model; ``model_config`` is VegabotConfig
     ``text_llm_model``."""
     return ChatGemini(model=model_name_for(ChatMode.TEXT, model_config))
 
 
 def live_model(*, model_config=None):
     """The (costly) live model with its voice; ``model_config`` is
-    DisonConfig ``live_llm_model``."""
+    VegabotConfig ``live_llm_model``."""
     model_config = _as_dict(model_config)
     return ChatGemini(
         model=model_name_for(ChatMode.AUDIO, model_config),
@@ -123,10 +123,10 @@ def build_model(mode, *, model_config=None):
 
 
 def load_model_config(mode):
-    """Per-mode model overrides from the DisonConfig singleton (sync ORM)."""
-    from base.models import DisonConfig
+    """Per-mode model overrides from the Vegabot singleton (sync ORM)."""
+    from base.models import Vegabot
 
-    config = DisonConfig.objects.first()
+    config = Vegabot.objects.first()
     if config is None:
         return {}
     field = "live_llm_model" if mode == ChatMode.AUDIO else "text_llm_model"

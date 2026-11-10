@@ -9,6 +9,6 @@ file_apis = [
 ]
 
 urlpatterns = [
-    path("", views.DisonConfigAPIView.as_view(), name="dison-config"),
+    path("", views.VegabotConfigAPIView.as_view(), name="Vegabot-config"),
     path("file/", include(file_apis)),
 ]

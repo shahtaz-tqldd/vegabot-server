@@ -1,12 +1,12 @@
 from rest_framework import serializers
 
-from base.models import DisonConfig
+from base.models import VegabotConfig
 from base.api.v1.utils import CONFIG_SECTIONS
 
 
-class DisonConfigUpdateSerializer(serializers.ModelSerializer):
+class VegabotConfigUpdateSerializer(serializers.ModelSerializer):
     class Meta:
-        model = DisonConfig
+        model = VegabotConfig
         fields = tuple(
             field
             for section, section_fields in CONFIG_SECTIONS.items()

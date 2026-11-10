@@ -1,6 +1,6 @@
 ## Cloudflare R2 storage
 
-The application uses the `dison-chatbot` R2 bucket with this object layout:
+The application uses the `vegabot` R2 bucket with this object layout:
 
 ```text
 files/{chatbot_id}/{upload_id}/{filename}
