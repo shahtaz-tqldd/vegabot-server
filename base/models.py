@@ -3,7 +3,7 @@ from django.conf import settings
 from app.utils.validators import validate_json_object
 
 
-class DisonConfig(models.Model):
+class VegabotConfig(models.Model):
     maintenance_mode = models.BooleanField(default=False)
     text_llm_model = models.JSONField(
         default=dict,
@@ -35,15 +35,15 @@ class DisonConfig(models.Model):
     )
 
     class Meta:
-        verbose_name = "dison Chatbot Configuration"
-        verbose_name_plural = "dison Chatbot Configuration"
+        verbose_name = "Vegabot Chatbot Configuration"
+        verbose_name_plural = "Vegabot Chatbot Configuration"
 
     def __str__(self):
-        return "dison Chatbot Configuration"
+        return "Vegabot Chatbot Configuration"
 
     def save(self, *args, **kwargs):
         # Keep this model as a singleton
-        if not self.pk and DisonConfig.objects.exists():
-            raise ValueError("Only one DisonConfig instance is allowed.")
+        if not self.pk and VegabotConfig.objects.exists():
+            raise ValueError("Only one VegabotConfig instance is allowed.")
 
         super().save(*args, **kwargs)

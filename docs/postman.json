@@ -1,10 +1,10 @@
 {
   "info": {
     "_postman_id": "b6f0c4e2-argb-4c81-9f2a-3d5e7a9b1c04",
-    "name": "Dison Backend API",
-    "description": "# Dison Backend API\n\nMulti-tenant, AI-assisted customer support Chatbot.\n\n## Getting started\n\n1. Set the `base_url` collection variable (default `http://localhost:8013`, the WSGI dev port).\n2. Run **Accounts → Login** (or **Register** then **Verify OTP**). Access/refresh tokens are saved automatically to collection variables.\n3. Authenticated requests send `Authorization: Bearer {{access_token}}` automatically via collection-level auth. Public endpoints disable it.\n\n## Conventions\n\n- **Response envelope** — every endpoint returns:\n  ```json\n  {\"status\": 200, \"success\": true, \"message\": \"...\", \"data\": {}, \"meta\": {}, \"errors\": {}}\n  ```\n  `meta` and `errors` are present when applicable. Validation failures return HTTP 400 with an `errors` object.\n- **Pagination** — list endpoints accept `page` and `page_size` (default 20, max 100) and return `meta: {count, page, page_size, num_pages, next, previous}`.\n- **Object scoping via query params** — dashboard endpoints resolve the target object from query parameters (`workspace`, `chatbot`, `chatbot_slug`, `session_id`, `knowledge_base_id`, `lead_id`, `appointment_id`, `transfer_id`), not from the URL path. Note: chat endpoints use `chatbot_slug`, while knowledge/subscription endpoints use `chatbot`.\n- **Auth** — SimpleJWT Bearer tokens. Access tokens last 24h, refresh tokens 7d (rotated + blacklisted on refresh). Login endpoints return `access_token`/`refresh_token`; the refresh endpoint returns `access`/`refresh`.\n- **URL layout** — REST: `/api/v1/...`, platform admin: `/api/v1/admin/...`, Django admin: `/admin/`, WebSockets (separate ASGI process, port 8014): `/ws/...`.\n- All paths require a trailing slash.\n\n## Permissions\n\nWorkspace roles: `ADMIN`, `MEMBER`. Chatbot memberships carry granular permissions (e.g. `setup_configuration`, `chat_session_management`, `lead_management`, `appointment_management`) or `all_permissions`. Chatbot/workspace admins bypass permission checks. Platform admin endpoints require `is_staff`; superadmin endpoints require `is_superuser`.",
+    "name": "Vegabot Backend API",
+    "description": "# Vegabot Backend API\n\nMulti-tenant, AI-assisted customer support Chatbot.\n\n## Getting started\n\n1. Set the `base_url` collection variable (default `http://localhost:8013`, the WSGI dev port).\n2. Run **Accounts → Login** (or **Register** then **Verify OTP**). Access/refresh tokens are saved automatically to collection variables.\n3. Authenticated requests send `Authorization: Bearer {{access_token}}` automatically via collection-level auth. Public endpoints disable it.\n\n## Conventions\n\n- **Response envelope** — every endpoint returns:\n  ```json\n  {\"status\": 200, \"success\": true, \"message\": \"...\", \"data\": {}, \"meta\": {}, \"errors\": {}}\n  ```\n  `meta` and `errors` are present when applicable. Validation failures return HTTP 400 with an `errors` object.\n- **Pagination** — list endpoints accept `page` and `page_size` (default 20, max 100) and return `meta: {count, page, page_size, num_pages, next, previous}`.\n- **Object scoping via query params** — dashboard endpoints resolve the target object from query parameters (`workspace`, `chatbot`, `chatbot_slug`, `session_id`, `knowledge_base_id`, `lead_id`, `appointment_id`, `transfer_id`), not from the URL path. Note: chat endpoints use `chatbot_slug`, while knowledge/subscription endpoints use `chatbot`.\n- **Auth** — SimpleJWT Bearer tokens. Access tokens last 24h, refresh tokens 7d (rotated + blacklisted on refresh). Login endpoints return `access_token`/`refresh_token`; the refresh endpoint returns `access`/`refresh`.\n- **URL layout** — REST: `/api/v1/...`, platform admin: `/api/v1/admin/...`, Django admin: `/admin/`, WebSockets (separate ASGI process, port 8014): `/ws/...`.\n- All paths require a trailing slash.\n\n## Permissions\n\nWorkspace roles: `ADMIN`, `MEMBER`. Chatbot memberships carry granular permissions (e.g. `setup_configuration`, `chat_session_management`, `lead_management`, `appointment_management`) or `all_permissions`. Chatbot/workspace admins bypass permission checks. Platform admin endpoints require `is_staff`; superadmin endpoints require `is_superuser`.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
-    "_exporter_id": "dison-docs"
+    "_exporter_id": "vegabot-docs"
   },
   "auth": {
     "type": "bearer",
@@ -3981,7 +3981,7 @@
     },
     {
       "name": "Platform Config",
-      "description": "Public dison platform configuration (branding, legal docs, features, announcements, SEO).",
+      "description": "Public vegabot platform configuration (branding, legal docs, features, announcements, SEO).",
       "item": [
         {
           "name": "Get Platform Config",
@@ -4240,13 +4240,13 @@
                     {
                       "key": "title",
                       "type": "text",
-                      "value": "dison",
+                      "value": "vegabot",
                       "description": "Branding"
                     },
                     {
                       "key": "support_email",
                       "type": "text",
-                      "value": "support@dison.example",
+                      "value": "support@vegabot.example",
                       "description": "Branding"
                     },
                     {
@@ -4264,7 +4264,7 @@
                     {
                       "key": "meta_title",
                       "type": "text",
-                      "value": "dison Platform",
+                      "value": "vegabot Platform",
                       "description": "SEO"
                     }
                   ]

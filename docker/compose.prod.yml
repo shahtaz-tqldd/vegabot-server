@@ -1,6 +1,6 @@
 services:
   wsgi:
-    container_name: dison_api
+    container_name: vegabot_api
     build:
       context: ..
       dockerfile: docker/Dockerfile
@@ -14,11 +14,11 @@ services:
       DJANGO_COLLECTSTATIC: "1"
       DB_HOST: postgres
       DB_PORT: 5432
-      ADK_DB_URL: postgresql+asyncpg://${DB_USER:-dison_db_owner}:${DB_PASSWORD:-dison_db_password}@postgres:5432/adk_session_db
+      ADK_DB_URL: postgresql+asyncpg://${DB_USER:-shahtaz}:${DB_PASSWORD:-nylo166}@postgres:5432/adk_session_db
       CELERY_BROKER_URL: redis://redis:6379/0
       CELERY_RESULT_BACKEND: redis://redis:6379/0
     volumes:
-      - dison_media_data:/app/media
+      - vegabot_media_data:/app/media
     ports:
       - "${WSGI_PORT:-8007}:8000"
     depends_on:
@@ -28,7 +28,7 @@ services:
         condition: service_healthy
 
   asgi:
-    container_name: dison_app
+    container_name: vegabot_app
     build:
       context: ..
       dockerfile: docker/Dockerfile
@@ -40,13 +40,13 @@ services:
       DEBUG: "false"
       DB_HOST: postgres
       DB_PORT: 5432
-      ADK_DB_URL: postgresql+asyncpg://${DB_USER:-dison_db_owner}:${DB_PASSWORD:-dison_db_password}@postgres:5432/adk_session_db
+      ADK_DB_URL: postgresql+asyncpg://${DB_USER:-shahtaz}:${DB_PASSWORD:-nylo166}@postgres:5432/adk_session_db
       DJANGO_CREATE_SUPERUSER: "0"
       DJANGO_WAIT_FOR_MIGRATIONS: "1"
       CELERY_BROKER_URL: redis://redis:6379/0
       CELERY_RESULT_BACKEND: redis://redis:6379/0
     volumes:
-      - dison_media_data:/app/media
+      - vegabot_media_data:/app/media
     ports:
       - "${ASGI_PORT:-8008}:8001"
     depends_on:
@@ -56,7 +56,7 @@ services:
         condition: service_healthy
 
   celery-worker:
-    container_name: dison_celery
+    container_name: vegabot_celery
     build:
       context: ..
       dockerfile: docker/Dockerfile
@@ -68,13 +68,13 @@ services:
       DEBUG: "false"
       DB_HOST: postgres
       DB_PORT: 5432
-      ADK_DB_URL: postgresql+asyncpg://${DB_USER:-dison_db_owner}:${DB_PASSWORD:-dison_db_password}@postgres:5432/adk_session_db
+      ADK_DB_URL: postgresql+asyncpg://${DB_USER:-shahtaz}:${DB_PASSWORD:-nylo166}@postgres:5432/adk_session_db
       DJANGO_CREATE_SUPERUSER: "0"
       DJANGO_WAIT_FOR_MIGRATIONS: "1"
       CELERY_BROKER_URL: redis://redis:6379/0
       CELERY_RESULT_BACKEND: redis://redis:6379/0
     volumes:
-      - dison_media_data:/app/media
+      - vegabot_media_data:/app/media
     depends_on:
       postgres:
         condition: service_healthy
@@ -82,7 +82,7 @@ services:
         condition: service_healthy
 
   celery-beat:
-    container_name: dison_celery_beat
+    container_name: vegabot_celery_beat
     build:
       context: ..
       dockerfile: docker/Dockerfile
@@ -94,7 +94,7 @@ services:
       DEBUG: "false"
       DB_HOST: postgres
       DB_PORT: 5432
-      ADK_DB_URL: postgresql+asyncpg://${DB_USER:-dison_db_owner}:${DB_PASSWORD:-dison_db_password}@postgres:5432/adk_session_db
+      ADK_DB_URL: postgresql+asyncpg://${DB_USER:-shahtaz}:${DB_PASSWORD:-nylo166}@postgres:5432/adk_session_db
       DJANGO_CREATE_SUPERUSER: "0"
       DJANGO_WAIT_FOR_MIGRATIONS: "1"
       CELERY_BROKER_URL: redis://redis:6379/0
@@ -106,30 +106,30 @@ services:
         condition: service_healthy
 
   postgres:
-    container_name: dison_psql
+    container_name: vegabot_psql
     image: pgvector/pgvector:0.8.7-pg18-trixie
     env_file:
       - ../.env
     environment:
-      POSTGRES_DB: ${DB_NAME:-dison_db}
-      POSTGRES_USER: ${DB_USER:-dison_db_owner}
-      POSTGRES_PASSWORD: ${DB_PASSWORD:-dison_db_password}
+      POSTGRES_DB: ${DB_NAME:-vegabot_db}
+      POSTGRES_USER: ${DB_USER:-shahtaz}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-nylo166}
       POSTGRES_ADDITIONAL_DATABASES: adk_session_db
     volumes:
-    - dison_psql_data:/var/lib/postgresql
+    - vegabot_psql_data:/var/lib/postgresql
     - ./postgres/init-additional-databases.sh:/docker-entrypoint-initdb.d/10-create-additional-databases.sh:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-dison_db_owner} -d ${DB_NAME:-dison_db}"]
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-shahtaz} -d ${DB_NAME:-vegabot_db}"]
       interval: 5s
       timeout: 5s
       retries: 10
 
   redis:
-    container_name: dison_redis
+    container_name: vegabot_redis
     image: redis:7-alpine
     command: redis-server --appendonly yes
     volumes:
-      - dison_redis_data:/data
+      - vegabot_redis_data:/data
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -137,6 +137,6 @@ services:
       retries: 10
 
 volumes:
-  dison_db_data:
-  dison_redis_data:
-  dison_media_data:
+  vegabot_db_data:
+  vegabot_redis_data:
+  vegabot_media_data:

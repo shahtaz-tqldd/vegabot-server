@@ -23,7 +23,7 @@ def _deliver_verification_email(*, recipient_email, recipient_name, otp):
     }
     kwargs = {
         "recipient_email": recipient_email,
-        "subject": "Verify your dison Chatbot email",
+        "subject": "Verify your Vegabot email",
         "message": render_to_string("emails/email_verification_otp.txt", context),
         "html_message": render_to_string("emails/email_verification_otp.html", context),
     }

@@ -10,23 +10,23 @@ from base.api.v1.utils import (
     CONFIG_SECTIONS,
     serialize_config_sections,
 )
-from base.api.v1.admin.serializers import DisonConfigUpdateSerializer
-from base.models import DisonConfig
+from base.api.v1.admin.serializers import VegabotConfigUpdateSerializer
+from base.models import VegabotConfig
 
 
 def get_config():
-    config = DisonConfig.objects.first()
+    config = VegabotConfig.objects.first()
     if config is None:
-        config = DisonConfig.objects.create()
+        config = VegabotConfig.objects.create()
     return config
 
 
-class DisonConfigUpdateAPIView(GenericAPIView):
+class VegabotConfigUpdateAPIView(GenericAPIView):
     """Update the singleton configuration, including multipart logo uploads."""
 
     permission_classes = [IsAuthenticated, IsSuperAdmin]
     parser_classes = [MultiPartParser, FormParser, JSONParser]
-    serializer_class = DisonConfigUpdateSerializer
+    serializer_class = VegabotConfigUpdateSerializer
 
     @transaction.atomic
     def patch(self, request, *args, **kwargs):

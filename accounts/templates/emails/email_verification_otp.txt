@@ -1,7 +1,7 @@
 Hi {{ recipient_name }},
 
-Your dison Chatbot email verification code is: {{ otp }}
+Your Vegabot email verification code is: {{ otp }}
 
-This code expires in {{ expires_in_minutes }} minutes. If you did not create a dison Chatbot account, you can ignore this email.
+This code expires in {{ expires_in_minutes }} minutes. If you did not create a Vegabot account, you can ignore this email.
 
-The dison Chatbot team
+The Vegabot team

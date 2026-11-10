@@ -19,13 +19,13 @@ from base.api.v1.utils import (
     serialize_config_sections,
 )
 
-from base.models import DisonConfig
+from base.models import VegabotConfig
 
 
 def get_config():
-    config = DisonConfig.objects.first()
+    config = VegabotConfig.objects.first()
     if config is None:
-        config = DisonConfig.objects.create()
+        config = VegabotConfig.objects.create()
     return config
 
 
@@ -52,7 +52,7 @@ def resolve_file_key(*, key=None, url=None):
     return resolved_key
 
 
-class DisonConfigAPIView(GenericAPIView):
+class VegabotConfigAPIView(GenericAPIView):
     """Return all configuration sections or the sections selected by query param."""
 
     permission_classes = [AllowAny]
