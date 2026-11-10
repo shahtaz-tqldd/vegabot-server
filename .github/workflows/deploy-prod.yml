@@ -1,0 +1,35 @@
+name: Deploy Production
+
+on:
+  push:
+    branches:
+      - prod
+
+jobs:
+  deploy:
+    name: Deploy to VPS
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Deploy backend
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          port: ${{ secrets.VPS_PORT }}
+
+          script: |
+            set -e
+
+            echo "Starting vegabot deployment..."
+
+            cd /root/apps/vegabot-server
+
+            git fetch origin
+            git checkout prod
+            git pull origin prod
+
+            bash startapp.sh
+
+            echo "vegabot deployment completed."
