@@ -261,41 +261,50 @@ class KnowledgeTrainingService:
         raise ValueError("Unsupported knowledge source type.")
 
     def _embed_chunks(self, knowledge_base, training_log, chunks, *, content_hash):
-        documents = []
         total = len(chunks)
-        for index, chunk in enumerate(chunks):
-            embedding = self._get_embedding_service().embed_document(chunk)
-            processed = index + 1
+
+        def on_progress(processed, total):
             update_training_log(
                 training_log,
                 stage=KnowledgeTrainingStageTypes.EMBEDDING,
                 progress=30 + int((processed / total) * 60),
                 processed_chunks=processed,
-                message=f"Embedded chunk {processed} of {total}.",
+                message=f"Embedded {processed} of {total} chunks.",
             )
-            documents.append(
-                VectorDocument(
-                    chatbot=knowledge_base.chatbot,
-                    space=KnowledgeSpaceTypes.DOCUMENT,
-                    knowledge_base=knowledge_base,
-                    chunk_index=index,
-                    token_count=token_count(chunk),
-                    content_hash=content_hash,
-                    content=chunk,
-                    metadata={
-                        "knowledge_base_id": str(knowledge_base.id),
-                        "chatbot_id": str(knowledge_base.chatbot_id),
-                        "title": knowledge_base.title,
-                        "url": knowledge_base.url,
-                        "original_filename": knowledge_base.original_filename,
-                        "source_type": knowledge_base.source_type,
-                        "chunk_index": index,
-                        "chunk_count": total,
-                    },
-                    embedding=embedding,
-                ),
+
+        update_training_log(
+            training_log,
+            stage=KnowledgeTrainingStageTypes.EMBEDDING,
+            progress=30,
+            message=f"Embedding {total} chunks.",
+        )
+        embeddings = self._get_embedding_service().embed_documents(
+            chunks,
+            on_progress=on_progress,
+        )
+        base_metadata = {
+            "knowledge_base_id": str(knowledge_base.id),
+            "chatbot_id": str(knowledge_base.chatbot_id),
+            "title": knowledge_base.title,
+            "url": knowledge_base.url,
+            "original_filename": knowledge_base.original_filename,
+            "source_type": knowledge_base.source_type,
+            "chunk_count": total,
+        }
+        return [
+            VectorDocument(
+                chatbot=knowledge_base.chatbot,
+                space=KnowledgeSpaceTypes.DOCUMENT,
+                knowledge_base=knowledge_base,
+                chunk_index=index,
+                token_count=token_count(chunk),
+                content_hash=content_hash,
+                content=chunk,
+                metadata={**base_metadata, "chunk_index": index},
+                embedding=embedding,
             )
-        return documents
+            for index, (chunk, embedding) in enumerate(zip(chunks, embeddings))
+        ]
 
     @staticmethod
     def _complete_without_changes(knowledge_base, training_log):
@@ -391,36 +400,42 @@ class CatalogTrainingService:
             return training_log
 
         try:
-            documents = []
-            item_ids = []
-            for index, item in enumerate(queryset.iterator()):
-                content = text_builder(item)
-                embedding = self._get_embedding_service().embed_document(content)
-                documents.append(
-                    VectorDocument(
-                        chatbot=chatbot,
-                        space=training_log.space,
-                        knowledge_base=None,
-                        **(
-                            {"product": item}
-                            if training_log.space == KnowledgeSpaceTypes.PRODUCT
-                            else {"service": item}
-                        ),
-                        chunk_index=0,
-                        token_count=token_count(content),
-                        content_hash=content_digest(content),
-                        content=content,
-                        metadata=metadata_builder(item),
-                        embedding=embedding,
-                    ),
-                )
-                item_ids.append(item.pk)
+            items = list(queryset)
+            contents = [text_builder(item) for item in items]
+
+            def on_progress(processed, total):
                 update_training_log(
                     training_log,
-                    progress=10 + int(((index + 1) / total) * 80),
-                    processed_chunks=index + 1,
-                    message=f"Embedded item {index + 1} of {total}.",
+                    progress=10 + int((processed / total) * 80),
+                    processed_chunks=processed,
+                    message=f"Embedded {processed} of {total} items.",
                 )
+
+            embeddings = self._get_embedding_service().embed_documents(
+                contents,
+                on_progress=on_progress,
+            )
+            source_field = (
+                "product"
+                if training_log.space == KnowledgeSpaceTypes.PRODUCT
+                else "service"
+            )
+            documents = [
+                VectorDocument(
+                    chatbot=chatbot,
+                    space=training_log.space,
+                    knowledge_base=None,
+                    **{source_field: item},
+                    chunk_index=0,
+                    token_count=token_count(content),
+                    content_hash=content_digest(content),
+                    content=content,
+                    metadata=metadata_builder(item),
+                    embedding=embedding,
+                )
+                for item, content, embedding in zip(items, contents, embeddings)
+            ]
+            item_ids = [item.pk for item in items]
 
             update_training_log(
                 training_log,

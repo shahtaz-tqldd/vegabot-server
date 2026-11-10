@@ -153,6 +153,12 @@ GOOGLE_CLOUD_LIVE_CHAT_LOCATION = env("GOOGLE_CLOUD_LIVE_CHAT_LOCATION", "")
 GEMINI_EMBEDDING_MODEL = env("GEMINI_EMBEDDING_MODEL", "gemini-embedding-2")
 GEMINI_EMBEDDING_DIMENSIONS = env_int("GEMINI_EMBEDDING_DIMENSIONS", 1536)
 GEMINI_EMBEDDING_REQUEST_DELAY_SECONDS = env_float("GEMINI_EMBEDDING_REQUEST_DELAY_SECONDS", 13.0)
+# Texts per embedding request where the backend supports batching.
+GEMINI_EMBEDDING_BATCH_SIZE = env_int("GEMINI_EMBEDDING_BATCH_SIZE", 100)
+# Vertex AI (ADC) by default; set False to use the Gemini Developer API key,
+# whose batchEmbedContents batches gemini-embedding-2 in one request.
+GEMINI_EMBEDDING_USE_VERTEX = env_bool("GEMINI_EMBEDDING_USE_VERTEX", True)
+GEMINI_API_KEY = env("GEMINI_API_KEY", "")
 GEMINI_CHAT_MODEL = env("GEMINI_CHAT_MODEL", "gemini-2.5-flash")
 GEMINI_LIVE_CHAT_MODEL = env("GEMINI_LIVE_CHAT_MODEL", "gemini-3.8-live")
 GEMINI_LIVE_CHAT_VOICE = env("GEMINI_LIVE_CHAT_VOICE", "Puck")

@@ -158,6 +158,8 @@ Gemini and ADK use Vertex AI with Application Default Credentials. Configure:
 | `GOOGLE_APPLICATION_CREDENTIALS` | Path inside the runtime to Application Default Credentials. |
 | `GEMINI_CHAT_MODEL` | Gemini model used for generated responses. |
 | `GEMINI_EMBEDDING_MODEL`, `GEMINI_EMBEDDING_DIMENSIONS` | Embedding model and pgvector dimensions. |
+| `GEMINI_EMBEDDING_BATCH_SIZE` | Texts per embedding request when the backend supports batching (Gemini API, or Vertex `:predict` models such as `gemini-embedding-001`). Vertex `gemini-embedding-2` only accepts one text per request. |
+| `GEMINI_EMBEDDING_USE_VERTEX`, `GEMINI_API_KEY` | Embed through Vertex AI (default) or, when disabled, the Gemini Developer API with an API key. |
 | `GEMINI_INPUT_COST_PER_MILLION`, `GEMINI_OUTPUT_COST_PER_MILLION` | Rates used for internal AI cost accounting. |
 | `KNOWLEDGE_*` | File, page, row, item, chunk-size, and overlap safeguards for ingestion. |
 
