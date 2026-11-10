@@ -16,3 +16,7 @@ AGENT_RESPONSE_DELTA = "agent.response.delta"
 AGENT_RESPONSE_RECOMMENDATIONS = "agent.response.recommendations"
 AGENT_RESPONSE_COMPLETED = "agent.response.completed"
 AGENT_RESPONSE_FAILED = "agent.response.failed"
+
+# Diagnostics of one agent turn (tool calls, results, recommendation
+# decisions); only sent when settings.AGENT_CLIENT_DEBUG is on.
+AGENT_DEBUG = "agent.debug"

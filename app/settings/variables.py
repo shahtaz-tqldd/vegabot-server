@@ -157,6 +157,9 @@ GEMINI_CHAT_MODEL = env("GEMINI_CHAT_MODEL", "gemini-2.5-flash")
 GEMINI_LIVE_CHAT_MODEL = env("GEMINI_LIVE_CHAT_MODEL", "gemini-3.8-live")
 GEMINI_LIVE_CHAT_VOICE = env("GEMINI_LIVE_CHAT_VOICE", "Puck")
 GEMINI_CHAT_MAX_OUTPUT_TOKENS = env_int("GEMINI_CHAT_MAX_OUTPUT_TOKENS", 1024)
+# Send agent.debug events (tool calls, results, recommendation decisions)
+# to the chat socket. Always logged server-side.
+AGENT_CLIENT_DEBUG = env_bool("AGENT_CLIENT_DEBUG", DEBUG)
 GEMINI_INPUT_COST_PER_MILLION = env_float("GEMINI_INPUT_COST_PER_MILLION", 0.30)
 GEMINI_OUTPUT_COST_PER_MILLION = env_float("GEMINI_OUTPUT_COST_PER_MILLION", 2.50)
 # Live (voice) model rates; default to the chat rates until configured.

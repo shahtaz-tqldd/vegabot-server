@@ -3,7 +3,7 @@ from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
-from django.test import TestCase
+from django.test import TestCase, override_settings
 
 from agent.client import AgentClient
 from agent.helpers.lock import acquire_session_lock
@@ -121,7 +121,7 @@ class GenerateReplyTests(ReplyFixtureMixin, TestCase):
         }
 
     def _fake_turn(self, captured):
-        async def fake_run_turn(turn_text, *, on_delta=None):
+        async def fake_run_turn(turn_text, *, on_delta=None, on_debug=None):
             captured["turn_text"] = turn_text
             await on_delta("Try the Runner [K")
             await on_delta("1].")
@@ -132,11 +132,15 @@ class GenerateReplyTests(ReplyFixtureMixin, TestCase):
             )
             return (
                 build_response(result, TokenUsageSchema()),
-                SimpleNamespace(results={"p1": {"space": "product", "name": "Runner"}}),
+                SimpleNamespace(
+                    results={"p1": {"space": "product", "name": "Runner"}},
+                    selected_tools=["search_products", "show_recommendations"],
+                ),
             )
 
         return fake_run_turn
 
+    @override_settings(AGENT_CLIENT_DEBUG=True)
     def test_streams_and_persists_reply_with_recommendations(self):
         captured = {}
         events = []
@@ -154,15 +158,19 @@ class GenerateReplyTests(ReplyFixtureMixin, TestCase):
                 "agent.response.started",
                 "agent.response.delta",
                 "agent.response.delta",
+                "agent.debug",
                 "agent.response.recommendations",
                 "agent.response.completed",
             ],
         )
+        debug = next(e["data"] for e in events if e["type"] == "agent.debug")
+        self.assertEqual(debug["stage"], "recommendations_sent")
+        self.assertEqual(debug["turn_id"], events[0]["data"]["turn_id"])
         streamed = "".join(
             e["data"]["delta"] for e in events if e["type"] == "agent.response.delta"
         )
         self.assertEqual(streamed, "Try the Runner .")  # markers never streamed
-        self.assertEqual(events[3]["data"]["items"], [self.card])
+        self.assertEqual(events[-2]["data"]["items"], [self.card])
         completed = events[-1]["data"]
         self.assertEqual(completed["turn_id"], str(self.message.pk))
         self.assertEqual(completed["mode"], "text")
@@ -178,7 +186,7 @@ class GenerateReplyTests(ReplyFixtureMixin, TestCase):
     def test_failure_emits_failed_event(self):
         events = []
 
-        async def broken_turn(turn_text, *, on_delta=None):
+        async def broken_turn(turn_text, *, on_delta=None, on_debug=None):
             raise RuntimeError("model down")
 
         self.client._run_turn = broken_turn

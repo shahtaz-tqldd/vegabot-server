@@ -6,11 +6,13 @@ user can switch between typing and talking mid-conversation.
 """
 
 from contextlib import aclosing
+from functools import partial
 
 from asgiref.sync import async_to_sync, sync_to_async
 from google.adk.agents.run_config import RunConfig, StreamingMode
 from google.genai import types
 
+from agent.helpers.debug import card_summary, emit_debug, tool_diagnostics
 from agent.helpers.model import (
     load_model_config,
     model_name_for,
@@ -128,8 +130,9 @@ class AgentClient:
         return "\n\n".join(sections)
 
     # --- core turn ---
-    async def _run_turn(self, turn_text, *, on_delta=None):
-        """Run one turn; partial text chunks go to ``on_delta``."""
+    async def _run_turn(self, turn_text, *, on_delta=None, on_debug=None):
+        """Run one turn; partial text chunks go to ``on_delta``, tool
+        diagnostics to ``on_debug(stage, **data)``."""
         scoped_user = scoped_user_id(self.session)
         adk_session = await get_or_create_session(
             self.session_service,
@@ -161,6 +164,9 @@ class AgentClient:
                     chunk = self._stream_chunk(event)
                     if chunk:
                         await on_delta(chunk)
+                if on_debug is not None:
+                    for stage, data in tool_diagnostics(event):
+                        await on_debug(stage, **data)
                 collector.observe(event)
 
         fallback = self.chatbot.fallback_message
@@ -218,9 +224,12 @@ class AgentClient:
             strip_citations=True,
         )
         await stream.start()
+        debug = partial(
+            emit_debug, emit, mode=self.mode, turn_id=stream.turn_id,
+        )
         try:
             response, collector = await self._run_turn(
-                turn_text, on_delta=stream.delta,
+                turn_text, on_delta=stream.delta, on_debug=debug,
             )
             sources = build_source_metadata(response["result"], collector.results)
             reply = await sync_to_async(persist_reply, thread_sensitive=True)(
@@ -236,6 +245,12 @@ class AgentClient:
             await stream.fail(FAILED_REPLY_MESSAGE)
             raise
 
+        recommendations = response["result"]["recommendations"]
+        await debug(
+            "recommendations_sent" if recommendations else "no_recommendations",
+            items=card_summary(recommendations),
+            selected_tools=collector.selected_tools,
+        )
         await stream.finish(
             message=reply["message"],
             sources=reply["sources"],

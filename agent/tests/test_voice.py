@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, patch
 from asgiref.sync import async_to_sync
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from google.adk.events import Event
 from google.genai import types
 
@@ -85,6 +85,7 @@ class VoiceStartTests(VoiceFixtureMixin, TestCase):
             async_to_sync(self.voice.start)()
 
 
+@override_settings(AGENT_CLIENT_DEBUG=False)
 class VoiceEventTests(VoiceFixtureMixin, TestCase):
     def setUp(self):
         super().setUp()
@@ -190,6 +191,68 @@ class VoiceEventTests(VoiceFixtureMixin, TestCase):
         stored = self.session.messages.get(sender_type="agent")
         self.assertEqual(stored.mode, "audio")
         self.assertEqual(stored.recommendations, [CARD])
+
+    def tool_result(self, name, response):
+        return Event(
+            author="assistant",
+            content=types.Content(
+                role="user",
+                parts=[types.Part.from_function_response(name=name, response=response)],
+            ),
+        )
+
+    def test_cards_survive_turn_complete_after_tool_rounds(self):
+        """The Live API reports turn_complete after each tool round, before
+        any speech; the chosen cards must reach the spoken reply."""
+        self.handle(
+            self.tool_result("search_products", {"status": "ok", "sources": []}),
+            Event(author="assistant", turn_complete=True),
+            self.tool_result(RECOMMENDATION_TOOL, {"status": "ok", "items": [CARD]}),
+            Event(author="assistant", turn_complete=True),
+            Event(
+                author="assistant",
+                partial=True,
+                output_transcription=types.Transcription(text="Try our repair.", finished=False),
+            ),
+            Event(
+                author="assistant",
+                output_transcription=types.Transcription(text="Try our repair.", finished=True),
+            ),
+            Event(author="assistant", turn_complete=True),
+        )
+
+        self.assertEqual(
+            self.recorder.types(),
+            [
+                "agent.response.started",
+                "agent.response.delta",
+                "agent.response.recommendations",
+                "agent.response.completed",
+            ],
+        )
+        stored = self.session.messages.get(sender_type="agent")
+        self.assertEqual(stored.recommendations, [CARD])
+
+    @override_settings(AGENT_CLIENT_DEBUG=True)
+    def test_debug_events_share_the_reply_turn_id(self):
+        self.handle(
+            self.tool_result(RECOMMENDATION_TOOL, {"status": "ok", "items": [CARD]}),
+            Event(author="assistant", turn_complete=True),
+            Event(
+                author="assistant",
+                output_transcription=types.Transcription(text="Try our repair.", finished=True),
+            ),
+            Event(author="assistant", turn_complete=True),
+        )
+
+        debug = [e["data"] for e in self.recorder.json_events if e["type"] == "agent.debug"]
+        self.assertEqual(
+            [d["stage"] for d in debug],
+            ["tool_result", "recommendations_pending", "recommendations_sent"],
+        )
+        self.assertEqual(debug[0]["items"], [{"id": "s1", "name": "Repair", "type": "service"}])
+        completed = self.recorder.json_events[-1]["data"]
+        self.assertEqual({d["turn_id"] for d in debug}, {completed["turn_id"]})
 
     def test_interrupted_turn_stores_what_was_said(self):
         self.handle(

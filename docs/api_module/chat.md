@@ -169,6 +169,7 @@ Only the session owner can send `mode.set` and `message.send`.
 | `agent.response.delta` | Next chunk of the reply text |
 | binary frame | Next chunk of the agent's voice (`audio` mode) |
 | `agent.response.recommendations` | Product/service cards, after the text is complete (only when the reply recommends something) |
+| `agent.debug` | Diagnostics of the turn: tool calls, tool results, and recommendation decisions. Only sent when `AGENT_CLIENT_DEBUG` is on (defaults to `DEBUG`). For development; never render to end users |
 | `agent.response.completed` | The reply is final and stored |
 | `agent.response.failed` | The reply failed; discard the pending bubble |
 | `chat.message.created` | Any new message in the session (user or agent, from any tab or REST) |
@@ -353,3 +354,22 @@ const sendText = (content: string) => ws.send(JSON.stringify({ type: "message.se
 const startVoice = () => ws.send(JSON.stringify({ type: "mode.set", mode: "audio" }));
 const stopVoice = () => ws.send(JSON.stringify({ type: "mode.set", mode: "text" }));
 ```
+
+### Debug events (`agent.debug`)
+
+When `AGENT_CLIENT_DEBUG` is on, each agent turn also emits diagnostics with the same `turn_id` as its `agent.response.*` events. They are written to the server log too.
+
+```json
+{ "type": "agent.debug", "data": { "turn_id": "uuid", "mode": "audio", "stage": "tool_result",
+  "tool": "show_recommendations", "status": "ok",
+  "items": [ { "id": "uuid", "name": "Relaxed Fit Linen Shirt", "type": "product" } ] } }
+```
+
+| `stage` | Meaning |
+| --- | --- |
+| `tool_call` | The agent called `tool` with `args` |
+| `tool_result` | `tool` returned `status`; search tools list `results` (`ref`, `name`, `space`); `show_recommendations` lists `items` |
+| `recommendations_pending` | Voice: cards were chosen during a tool round and are held for the spoken reply |
+| `recommendations_dropped` | Voice: the user interrupted before the reply was spoken (`reason`, `items`) |
+| `recommendations_sent` | The cards (`items`) are about to be sent as `agent.response.recommendations` |
+| `no_recommendations` | The reply finished without cards (text mode also lists `selected_tools`) |

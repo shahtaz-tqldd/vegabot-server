@@ -107,7 +107,7 @@ class Chatbot(BaseModel):
     status = models.CharField(
         max_length=30,
         choices=ChatbotStatusTypes.choices,
-        default=ChatbotStatusTypes.DRAFT,
+        default=ChatbotStatusTypes.ACTIVE,
         db_index=True,
     )
 

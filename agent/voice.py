@@ -16,6 +16,7 @@ the full conversation history and text turns later see what was said.
 """
 
 import asyncio
+from uuid import uuid4
 
 from asgiref.sync import sync_to_async
 from google.adk.agents.run_config import RunConfig, StreamingMode
@@ -23,6 +24,7 @@ from google.adk.runners import LiveRequestQueue
 from google.genai import types
 
 from agent.client import load_session_for_turn
+from agent.helpers.debug import card_summary, emit_debug, tool_diagnostics
 from agent.helpers.lock import (
     VOICE_TTL_SECONDS,
     AgentBusyError,
@@ -38,6 +40,7 @@ from agent.helpers.model import (
 )
 from agent.helpers.persistence import persist_reply
 from agent.helpers.profile import cached_agent_profile
+from agent.helpers.recommendations import MAX_RECOMMENDATIONS
 from agent.helpers.runtime import (
     APP_NAME,
     build_runner,
@@ -95,9 +98,23 @@ class VoiceSession:
         self._seen_usage_events = set()
 
     def _reset_turn(self):
+        self._turn_id = None
         self._stream = None
         self._segments = []
         self._recommendations = []
+
+    def _current_turn_id(self):
+        # Allocated on the turn's first event (often a tool call, before
+        # any speech) so debug events and the reply share one turn_id.
+        if self._turn_id is None:
+            self._turn_id = str(uuid4())
+        return self._turn_id
+
+    async def _debug(self, stage, **data):
+        await emit_debug(
+            self.send_json, stage,
+            mode=self.mode, turn_id=self._current_turn_id(), **data,
+        )
 
     # ------------------------------------------------------------ lifecycle
     async def start(self):
@@ -256,6 +273,9 @@ class VoiceSession:
                 await self._ensure_turn()
                 await self.send_bytes(bytes(inline.data))
 
+        for stage, data in tool_diagnostics(event):
+            await self._debug(stage, **data)
+
         for response in event.get_function_responses():
             if response.name == RECOMMENDATION_TOOL:
                 items = (response.response or {}).get("items") or []
@@ -263,13 +283,16 @@ class VoiceSession:
                 self._recommendations.extend(
                     item for item in items if item.get("id") not in known
                 )
+                del self._recommendations[MAX_RECOMMENDATIONS:]
 
         if event.turn_complete or event.interrupted:
             await self._finish_turn(interrupted=bool(event.interrupted))
 
     async def _ensure_turn(self):
         if self._stream is None:
-            self._stream = TurnStream(self.send_json, mode=self.mode)
+            self._stream = TurnStream(
+                self.send_json, mode=self.mode, turn_id=self._current_turn_id(),
+            )
             await self._stream.start()
 
     async def _on_user_transcript(self, event):
@@ -304,15 +327,36 @@ class VoiceSession:
 
     async def _finish_turn(self, *, interrupted):
         """The agent finished (or was cut off by the user): persist what
-        was said, then send the cards and the completed message."""
+        was said, then send the cards and the completed message.
+
+        The Live API also reports ``turn_complete`` after each tool-call
+        round, before any speech. Those are not reply turns: the chosen
+        recommendations stay pending for the spoken reply that follows.
+        """
+        if self._stream is None and not " ".join(self._segments).strip():
+            if not self._recommendations:
+                return
+            if not interrupted:
+                await self._debug(
+                    "recommendations_pending",
+                    items=card_summary(self._recommendations),
+                )
+                return
+            await self._debug(
+                "recommendations_dropped",
+                reason="interrupted before the reply was spoken",
+                items=card_summary(self._recommendations),
+            )
+            self._reset_turn()
+            return
+
         stream = self._stream
         text = " ".join(self._segments).strip()
         recommendations = list(self._recommendations)
+        turn_id = self._current_turn_id()
         self._reset_turn()
-        if stream is None and not text:
-            return
         if stream is None:
-            stream = TurnStream(self.send_json, mode=self.mode)
+            stream = TurnStream(self.send_json, mode=self.mode, turn_id=turn_id)
             await stream.start()
             await stream.delta(text)
 
@@ -336,6 +380,15 @@ class VoiceSession:
                 message = reply["message"]
             except Exception:
                 logger.exception("Voice reply not stored for session %s", self.session.pk)
+        await emit_debug(
+            self.send_json,
+            "recommendations_sent" if recommendations else "no_recommendations",
+            mode=self.mode,
+            turn_id=turn_id,
+            items=card_summary(recommendations),
+            interrupted=interrupted,
+            stored=message is not None,
+        )
         await stream.finish(
             message=message,
             recommendations=recommendations,
