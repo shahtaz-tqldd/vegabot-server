@@ -124,9 +124,9 @@ def build_model(mode, *, model_config=None):
 
 def load_model_config(mode):
     """Per-mode model overrides from the Vegabot singleton (sync ORM)."""
-    from base.models import Vegabot
+    from base.models import VegabotConfig
 
-    config = Vegabot.objects.first()
+    config = VegabotConfig.objects.first()
     if config is None:
         return {}
     field = "live_llm_model" if mode == ChatMode.AUDIO else "text_llm_model"

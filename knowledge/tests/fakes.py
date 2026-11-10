@@ -17,6 +17,13 @@ class FakeEmbeddingService:
         FakeEmbeddingService.calls.append(text)
         return [0.1, 0.2, 0.3]
 
+    def embed_documents(self, texts, *, on_progress=None):
+        texts = list(texts)
+        embeddings = [self.embed_document(text) for text in texts]
+        if on_progress and texts:
+            on_progress(len(texts), len(texts))
+        return embeddings
+
     def embed_query(self, text):
         return [0.1, 0.2, 0.3]
 
