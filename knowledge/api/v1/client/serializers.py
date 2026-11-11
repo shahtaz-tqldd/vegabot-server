@@ -150,6 +150,22 @@ class ProductDisableSerializer(ChatbotScopeMixin):
     )
 
 
+class ProductBulkDeleteSerializer(ProductDisableSerializer):
+    """Product IDs to delete permanently (with their vectors)."""
+
+
+class ProductRetrainSerializer(ChatbotScopeMixin):
+    """Products to retrain; omit ``products`` to retrain every failed or
+    still-pending enabled product of the chatbot."""
+
+    products = serializers.ListField(
+        child=serializers.UUIDField(),
+        allow_empty=False,
+        max_length=200,
+        required=False,
+    )
+
+
 class CatalogQuerySerializer(serializers.Serializer):
     chatbot = serializers.SlugField()
     product = serializers.UUIDField(required=False)

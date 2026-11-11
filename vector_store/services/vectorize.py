@@ -97,6 +97,19 @@ class KnowledgeVectorService:
             **{source_field: item_id},
         ).delete()
 
+    def remove_catalog_items(self, *, space, item_ids):
+        """Remove the vectors of many products or services in one query."""
+        item_ids = list(item_ids)
+        if not item_ids:
+            return (0, {})
+        source_field = (
+            "product_id" if space == KnowledgeSpaceTypes.PRODUCT else "service_id"
+        )
+        return VectorDocument.objects.filter(
+            space=space,
+            **{f"{source_field}__in": item_ids},
+        ).delete()
+
     def remove_chatbot(self, chatbot_id):
         return VectorDocument.objects.filter(chatbot_id=chatbot_id).delete()
 

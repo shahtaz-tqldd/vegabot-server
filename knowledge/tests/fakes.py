@@ -54,6 +54,10 @@ class FakeVectorService:
     def remove_catalog_item(self, *, space, item_id):
         self.removed_catalog_items.append((space, item_id))
 
+    def remove_catalog_items(self, *, space, item_ids):
+        for item_id in item_ids:
+            self.removed_catalog_items.append((space, item_id))
+
 
 class FakeScraper:
     def __init__(self, *args, **kwargs):

@@ -113,12 +113,43 @@ class ChatMessageSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
 
+class ChatMessageUsageSerializer(ChatMessageSerializer):
+    """Message timeline entry with its AI token usage and cost.
+
+    Only for the authenticated message list (internal analytics); socket
+    and reply payloads keep using ``ChatMessageSerializer``.
+    """
+
+    usage = serializers.SerializerMethodField()
+
+    class Meta(ChatMessageSerializer.Meta):
+        fields = ChatMessageSerializer.Meta.fields + ("usage",)
+        read_only_fields = fields
+
+    def get_usage(self, obj):
+        usage = getattr(obj, "ai_usage", None)
+        if usage is None:
+            return None
+        return {
+            "total_tokens": usage.tokens,
+            "input_tokens": usage.input_tokens,
+            "output_tokens": usage.output_tokens,
+            "thinking_tokens": usage.thinking_tokens,
+            "cached_input_tokens": usage.cached_input_tokens,
+            "cost": float(usage.cost),
+            "model": usage.model,
+        }
+
+
 class ChatSessionListSerializer(serializers.ModelSerializer):
     """Compact session summaries returned by the session list endpoint."""
 
     chatbot = ChatSessionChatbotSerializer(read_only=True)
     message_count = serializers.IntegerField(read_only=True, default=0)
     last_message = serializers.SerializerMethodField()
+    total_tokens = serializers.IntegerField(read_only=True, default=0)
+    total_cost = serializers.SerializerMethodField()
+    avg_response_time_ms = serializers.SerializerMethodField()
 
     class Meta:
         model = ChatSession
@@ -128,10 +159,20 @@ class ChatSessionListSerializer(serializers.ModelSerializer):
             "status",
             "message_count",
             "last_message",
+            "total_tokens",
+            "total_cost",
+            "avg_response_time_ms",
             "last_activity_at",
             "created_at",
         )
         read_only_fields = fields
+
+    def get_total_cost(self, obj):
+        return float(getattr(obj, "total_cost", None) or 0)
+
+    def get_avg_response_time_ms(self, obj):
+        value = getattr(obj, "avg_response_time_ms", None)
+        return round(value) if value is not None else None
 
     def get_last_message(self, obj):
         content = getattr(obj, "last_message_content", None)

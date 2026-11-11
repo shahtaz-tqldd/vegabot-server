@@ -2,7 +2,17 @@ from uuid import uuid4
 
 from django.conf import settings
 from django.db import transaction
-from django.db.models import Avg, Count, OuterRef, Q, Subquery
+from django.db.models import (
+    Avg,
+    Count,
+    DecimalField,
+    FloatField,
+    IntegerField,
+    OuterRef,
+    Q,
+    Subquery,
+    Sum,
+)
 from django.db.models.functions import Coalesce
 from django.shortcuts import get_object_or_404
 from rest_framework import status
@@ -10,6 +20,7 @@ from rest_framework.generics import GenericAPIView
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.permissions import IsAuthenticated
 
+from analytics.models import AIUsage
 from app.services.r2 import upload_file
 from app.utils.pagination import CustomPagination
 from app.utils.response import APIResponse
@@ -19,6 +30,7 @@ from chat.api.v1.client.serializers import (
     ChatEscalationResolveSerializer,
     ChatMessageCreateSerializer,
     ChatMessageSerializer,
+    ChatMessageUsageSerializer,
     ChatSessionCreateSerializer,
     ChatSessionDetailSerializer,
     ChatSessionListSerializer,
@@ -50,10 +62,41 @@ def session_list_queryset(user):
         ChatMessage.objects.filter(chat_session=OuterRef("pk"))
         .order_by("-created_at", "-id")
     )
+    session_usage = (
+        AIUsage.objects.filter(chat_session=OuterRef("pk"))
+        .order_by()
+        .values("chat_session")
+    )
+    agent_response_times = (
+        ChatMessage.objects.filter(
+            chat_session=OuterRef("pk"),
+            sender_type=ChatMessageSenderType.AGENT,
+            response_time_ms__isnull=False,
+        )
+        .order_by()
+        .values("chat_session")
+    )
     return (
         visible_sessions(user)
         .annotate(
             message_count=Count("messages"),
+            total_tokens=Coalesce(
+                Subquery(
+                    session_usage.annotate(total=Sum("tokens")).values("total"),
+                    output_field=IntegerField(),
+                ),
+                0,
+            ),
+            total_cost=Subquery(
+                session_usage.annotate(total=Sum("cost")).values("total"),
+                output_field=DecimalField(max_digits=20, decimal_places=8),
+            ),
+            avg_response_time_ms=Subquery(
+                agent_response_times.annotate(
+                    avg=Avg("response_time_ms"),
+                ).values("avg"),
+                output_field=FloatField(),
+            ),
             last_message_content=Subquery(
                 last_message.values("content")[:1],
             ),
@@ -175,7 +218,7 @@ class ChatMessageListView(PaginatedListMixin, GenericAPIView):
     """List the message timeline of one session."""
 
     permission_classes = [IsAuthenticated]
-    serializer_class = ChatMessageSerializer
+    serializer_class = ChatMessageUsageSerializer
 
     def get_queryset(self):
         query_serializer = ChatSessionQuerySerializer(
@@ -186,7 +229,7 @@ class ChatMessageListView(PaginatedListMixin, GenericAPIView):
             visible_sessions(self.request.user),
             pk=query_serializer.validated_data["session"],
         )
-        return session.messages.all()
+        return session.messages.select_related("ai_usage")
 
     def get(self, request, *args, **kwargs):
         return self.paginated_response(

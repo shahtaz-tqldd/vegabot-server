@@ -1,5 +1,7 @@
+from django.db import transaction
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404
+from django.utils import timezone
 from rest_framework import status
 from rest_framework.generics import GenericAPIView
 from rest_framework.permissions import IsAuthenticated
@@ -17,7 +19,9 @@ from knowledge.api.v1.client.serializers import (
     KnowledgeDocumentWebsiteSerializer,
     KnowledgeSearchSerializer,
     KnowledgeTrainSerializer,
+    ProductBulkDeleteSerializer,
     ProductDisableSerializer,
+    ProductRetrainSerializer,
     ProductSerializer,
     ProductUpdateSerializer,
     ProductUploadSerializer,
@@ -292,7 +296,6 @@ class KnowledgeDocumentDeleteView(KnowledgeDocumentMixin, GenericAPIView):
         document.delete()
 
         if file_key:
-            from django.db import transaction
 
             from app.services.r2 import R2Storage
 
@@ -476,6 +479,108 @@ class ProductDisableView(GenericAPIView):
                 "products": ProductSerializer(products, many=True).data,
             },
             message="Products disabled and removed from search.",
+        )
+
+
+class ProductBulkDeleteView(GenericAPIView):
+    """Delete multiple products and their vectors in one request."""
+
+    permission_classes = [IsAuthenticated]
+    serializer_class = ProductBulkDeleteSerializer
+
+    def post(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        chatbot = serializer.validated_data["chatbot"]
+        product_ids = list(dict.fromkeys(serializer.validated_data["products"]))
+
+        products = Product.objects.filter(chatbot=chatbot, pk__in=product_ids)
+        found_ids = set(products.values_list("pk", flat=True))
+        missing = [str(pid) for pid in product_ids if pid not in found_ids]
+        if missing:
+            return validation_error_response(
+                {"products": f"Unknown product(s): {', '.join(missing)}."},
+                "Product delete failed.",
+            )
+
+        with transaction.atomic():
+            KnowledgeVectorService().remove_catalog_items(
+                space=KnowledgeSpaceTypes.PRODUCT,
+                item_ids=found_ids,
+            )
+            products.delete()
+        return APIResponse.success(
+            data={
+                "deleted_count": len(found_ids),
+                "products": [str(pid) for pid in product_ids],
+            },
+            message="Products deleted and removed from search.",
+        )
+
+
+class ProductBulkRetrainView(GenericAPIView):
+    """Mark products pending and queue one catalog training run.
+
+    Send ``products`` to retrain specific items (any status), or omit it
+    to retry every enabled product that failed or is still pending.
+    """
+
+    permission_classes = [IsAuthenticated]
+    serializer_class = ProductRetrainSerializer
+
+    def post(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        chatbot = serializer.validated_data["chatbot"]
+        product_ids = serializer.validated_data.get("products")
+
+        if product_ids:
+            product_ids = list(dict.fromkeys(product_ids))
+            products = Product.objects.filter(chatbot=chatbot, pk__in=product_ids)
+            found = dict(products.values_list("pk", "is_enabled"))
+            missing = [str(pid) for pid in product_ids if pid not in found]
+            if missing:
+                return validation_error_response(
+                    {"products": f"Unknown product(s): {', '.join(missing)}."},
+                    "Product retrain failed.",
+                )
+            disabled = [str(pid) for pid in product_ids if not found[pid]]
+            if disabled:
+                return validation_error_response(
+                    {
+                        "products": (
+                            "Disabled product(s) cannot be retrained: "
+                            f"{', '.join(disabled)}."
+                        ),
+                    },
+                    "Product retrain failed.",
+                )
+        else:
+            products = Product.objects.filter(
+                chatbot=chatbot,
+                is_enabled=True,
+                status__in=[StatusTypes.FAILED, StatusTypes.PENDING],
+            )
+
+        retrain_count = products.update(
+            status=StatusTypes.PENDING,
+            error_message="",
+            updated_by=request.user,
+            updated_at=timezone.now(),
+        )
+        if retrain_count == 0:
+            return APIResponse.success(
+                data={"retrain_count": 0, "training_log": None},
+                message="No products need retraining.",
+            )
+
+        log = _queue_catalog_training(chatbot, KnowledgeSpaceTypes.PRODUCT)
+        return APIResponse.success(
+            data={
+                "retrain_count": retrain_count,
+                "training_log": TrainingLogSerializer(log).data,
+            },
+            message="Product retraining queued.",
         )
 
 

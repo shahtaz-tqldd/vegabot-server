@@ -1,3 +1,4 @@
+import json
 import time
 
 from django.conf import settings
@@ -9,16 +10,17 @@ from google.genai import types
 
 
 class GeminiEmbeddingService:
-    """Gemini embeddings with single-request batching where the backend
-    supports it.
+    """Gemini embeddings with single-request batching on every backend.
 
-    Batching per backend:
-    - Gemini Developer API (``GEMINI_API_KEY`` set, Vertex disabled): one
-      ``batchEmbedContents`` request per ``batch_size`` texts.
-    - Vertex AI ``:predict`` models (``gemini-embedding-001``,
-      ``text-embedding-*``): one request per ``batch_size`` texts.
+    Batching per backend (``batch_size`` texts per request):
     - Vertex AI ``:embedContent`` models (``gemini-embedding-2`` and newer):
-      the API accepts one content per request, so texts are sent one by one.
+      Vertex's ``batchEmbedContents`` REST method. The SDK does not expose
+      it for Vertex, so it is called through the SDK's authenticated client;
+      vectors are identical to single ``embedContent`` calls.
+    - Vertex AI ``:predict`` models (``gemini-embedding-001``,
+      ``text-embedding-*``): one ``predict`` request with many instances.
+    - Gemini Developer API (``GEMINI_EMBEDDING_USE_VERTEX`` disabled):
+      ``batchEmbedContents`` with ``GEMINI_API_KEY``.
     """
 
     def __init__(
@@ -69,16 +71,17 @@ class GeminiEmbeddingService:
                     "GEMINI_API_KEY is required when GEMINI_EMBEDDING_USE_VERTEX "
                     "is disabled.",
                 )
-            self.client = genai.Client(api_key=self.api_key)
+            # Explicit vertexai=False: GOOGLE_GENAI_USE_VERTEXAI (used by the
+            # chat agents) would otherwise route this client to Vertex.
+            self.client = genai.Client(vertexai=False, api_key=self.api_key)
 
     # ------------------------------------------------------------- public
 
     @property
-    def supports_batching(self):
-        """Whether several texts can be embedded in one API request."""
-        if not self.use_vertex:
-            return True
-        return not genai_transformers.t_is_vertex_embed_content_model(self.model)
+    def uses_vertex_batch_embed_contents(self):
+        return self.use_vertex and genai_transformers.t_is_vertex_embed_content_model(
+            self.model,
+        )
 
     def embed_document(self, text):
         return self._embed_batch([text], task_type="RETRIEVAL_DOCUMENT")[0]
@@ -94,12 +97,11 @@ class GeminiEmbeddingService:
         """
         texts = list(texts)
         total = len(texts)
-        size = self.batch_size if self.supports_batching else 1
         embeddings = []
-        for start in range(0, total, size):
+        for start in range(0, total, self.batch_size):
             embeddings.extend(
                 self._embed_batch(
-                    texts[start:start + size],
+                    texts[start:start + self.batch_size],
                     task_type="RETRIEVAL_DOCUMENT",
                 ),
             )
@@ -110,11 +112,24 @@ class GeminiEmbeddingService:
     # ------------------------------------------------------------ helpers
 
     def _embed_batch(self, texts, *, task_type):
+        self._wait_for_rate_limit()
+        if self.uses_vertex_batch_embed_contents and len(texts) > 1:
+            vectors = self._vertex_batch_embed_contents(texts, task_type=task_type)
+        else:
+            vectors = self._sdk_embed_content(texts, task_type=task_type)
+        if len(vectors) != len(texts):
+            raise RuntimeError(
+                f"Embedding API returned {len(vectors)} vectors for "
+                f"{len(texts)} inputs.",
+            )
+        return vectors
+
+    def _sdk_embed_content(self, texts, *, task_type):
         config = types.EmbedContentConfig(task_type=task_type)
         if self.dimensions:
             config.output_dimensionality = int(self.dimensions)
 
-        if self.supports_batching and not self.use_vertex:
+        if not self.use_vertex:
             # One Content per text; a bare list of strings would be merged
             # into a single Content and yield a single embedding.
             contents = [
@@ -127,19 +142,43 @@ class GeminiEmbeddingService:
             # Vertex :predict takes one instance per string.
             contents = list(texts)
 
-        self._wait_for_rate_limit()
         response = self.client.models.embed_content(
             model=self.model,
             contents=contents,
             config=config,
         )
-        vectors = [embedding.values for embedding in response.embeddings or []]
-        if len(vectors) != len(texts):
-            raise RuntimeError(
-                f"Embedding API returned {len(vectors)} vectors for "
-                f"{len(texts)} inputs.",
-            )
-        return vectors
+        return [embedding.values for embedding in response.embeddings or []]
+
+    def _vertex_batch_embed_contents(self, texts, *, task_type):
+        """POST {model}:batchEmbedContents on Vertex AI.
+
+        Uses the SDK's API client for auth, project/location routing and
+        error handling (non-2xx responses raise ``google.genai.errors``).
+        """
+        request_config = {"taskType": task_type}
+        if self.dimensions:
+            request_config["outputDimensionality"] = int(self.dimensions)
+        body = {
+            "requests": [
+                {
+                    "content": {"role": "user", "parts": [{"text": text}]},
+                    **request_config,
+                }
+                for text in texts
+            ],
+        }
+        model_path = (
+            self.model if "/" in self.model
+            else f"publishers/google/models/{self.model}"
+        )
+        response = self.client._api_client.request(
+            "post",
+            f"{model_path}:batchEmbedContents",
+            body,
+            None,
+        )
+        payload = json.loads(response.body or "{}")
+        return [item.get("values", []) for item in payload.get("embeddings", [])]
 
     def _wait_for_rate_limit(self):
         delay = float(self.request_delay_seconds or 0)
