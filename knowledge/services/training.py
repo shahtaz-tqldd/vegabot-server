@@ -399,73 +399,52 @@ class CatalogTrainingService:
             )
             return training_log
 
+        pending_ids = []
         try:
-            items = list(queryset)
-            contents = [text_builder(item) for item in items]
-
-            def on_progress(processed, total):
+            embedding_service = self._get_embedding_service()
+            batch_size = max(
+                int(
+                    getattr(embedding_service, "batch_size", None)
+                    or settings.GEMINI_EMBEDDING_BATCH_SIZE
+                    or 1
+                ),
+                1,
+            )
+            pending_ids = list(queryset.values_list("pk", flat=True))
+            processed = 0
+            for start in range(0, len(pending_ids), batch_size):
+                batch_ids = pending_ids[start:start + batch_size]
+                items = list(
+                    model.objects.filter(pk__in=batch_ids).order_by("created_at"),
+                )
+                processed += self._train_batch(
+                    chatbot,
+                    training_log,
+                    model,
+                    items,
+                    text_builder=text_builder,
+                    metadata_builder=metadata_builder,
+                )
                 update_training_log(
                     training_log,
-                    progress=10 + int((processed / total) * 80),
+                    progress=10 + int((processed / total) * 85),
                     processed_chunks=processed,
-                    message=f"Embedded {processed} of {total} items.",
+                    message=f"Trained {processed} of {total} items.",
                 )
-
-            embeddings = self._get_embedding_service().embed_documents(
-                contents,
-                on_progress=on_progress,
-            )
-            source_field = (
-                "product"
-                if training_log.space == KnowledgeSpaceTypes.PRODUCT
-                else "service"
-            )
-            documents = [
-                VectorDocument(
-                    chatbot=chatbot,
-                    space=training_log.space,
-                    knowledge_base=None,
-                    **{source_field: item},
-                    chunk_index=0,
-                    token_count=token_count(content),
-                    content_hash=content_digest(content),
-                    content=content,
-                    metadata=metadata_builder(item),
-                    embedding=embedding,
-                )
-                for item, content, embedding in zip(items, contents, embeddings)
-            ]
-            item_ids = [item.pk for item in items]
 
             update_training_log(
                 training_log,
-                stage=KnowledgeTrainingStageTypes.INDEXING,
-                progress=95,
-                message="Replacing item vectors.",
+                stage=KnowledgeTrainingStageTypes.COMPLETED,
+                progress=100,
+                processed_chunks=processed,
+                message=f"Trained {processed} items.",
+                completed_at=timezone.now(),
             )
-            with transaction.atomic():
-                self.vector_service.replace_catalog_items(
-                    space=training_log.space,
-                    item_ids=item_ids,
-                    documents=documents,
-                )
-                model.objects.filter(pk__in=item_ids).update(
-                    status=StatusTypes.READY,
-                    error_message="",
-                )
-                update_training_log(
-                    training_log,
-                    stage=KnowledgeTrainingStageTypes.COMPLETED,
-                    progress=100,
-                    processed_chunks=total,
-                    message=f"Trained {total} items.",
-                    completed_at=timezone.now(),
-                )
             notify_training_complete(
                 chatbot,
                 training_log,
                 stage=KnowledgeTrainingStageTypes.COMPLETED,
-                summary=f"Trained {total} {training_log.space} items.",
+                summary=f"Trained {processed} {training_log.space} items.",
             )
             return training_log
         except Exception as exc:
@@ -473,6 +452,15 @@ class CatalogTrainingService:
                 "Catalog training failed for chatbot %s (%s)",
                 chatbot.pk,
                 training_log.space,
+            )
+            # Items this run did not finish are flagged so they can be
+            # found and retrained; finished batches stay ready.
+            model.objects.filter(
+                pk__in=pending_ids,
+                status=StatusTypes.PENDING,
+            ).update(
+                status=StatusTypes.FAILED,
+                error_message=str(exc)[:4000],
             )
             update_training_log(
                 training_log,
@@ -482,3 +470,55 @@ class CatalogTrainingService:
                 completed_at=timezone.now(),
             )
             raise
+
+    def _train_batch(
+        self,
+        chatbot,
+        training_log,
+        model,
+        items,
+        *,
+        text_builder,
+        metadata_builder,
+    ):
+        """Embed one batch in a single request and persist it atomically.
+
+        Earlier batches stay trained if a later one fails; untrained items
+        remain pending for the next run.
+        """
+        if not items:
+            return 0
+        contents = [text_builder(item) for item in items]
+        embeddings = self._get_embedding_service().embed_documents(contents)
+        source_field = (
+            "product"
+            if training_log.space == KnowledgeSpaceTypes.PRODUCT
+            else "service"
+        )
+        documents = [
+            VectorDocument(
+                chatbot=chatbot,
+                space=training_log.space,
+                knowledge_base=None,
+                **{source_field: item},
+                chunk_index=0,
+                token_count=token_count(content),
+                content_hash=content_digest(content),
+                content=content,
+                metadata=metadata_builder(item),
+                embedding=embedding,
+            )
+            for item, content, embedding in zip(items, contents, embeddings)
+        ]
+        item_ids = [item.pk for item in items]
+        with transaction.atomic():
+            self.vector_service.replace_catalog_items(
+                space=training_log.space,
+                item_ids=item_ids,
+                documents=documents,
+            )
+            model.objects.filter(pk__in=item_ids).update(
+                status=StatusTypes.READY,
+                error_message="",
+            )
+        return len(items)

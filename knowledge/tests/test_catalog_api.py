@@ -2,6 +2,8 @@ import csv
 import io
 from unittest.mock import patch
 
+from django.test import override_settings
+
 from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.urls import reverse
@@ -12,7 +14,9 @@ from chatbot.models import Chatbot
 from knowledge.models import KnowledgeTrainingLog, Product, Service
 from knowledge.utils.choices import KnowledgeSpaceTypes, StatusTypes
 
-from .fakes import FakeVectorService, fake_training_stack
+from knowledge.services.training import CatalogTrainingService
+
+from .fakes import FakeEmbeddingService, FakeVectorService, fake_training_stack
 
 User = get_user_model()
 
@@ -21,6 +25,8 @@ PRODUCT_IMPORT_URL = reverse("product-import")
 PRODUCT_LIST_URL = reverse("product-list")
 PRODUCT_DISABLE_URL = reverse("product-disable")
 PRODUCT_UPDATE_URL = reverse("product-update")
+PRODUCT_DELETE_URL = reverse("product-delete")
+PRODUCT_RETRAIN_URL = reverse("product-retrain")
 
 SERVICE_TEMPLATE_URL = reverse("service-template")
 SERVICE_IMPORT_URL = reverse("service-import")
@@ -192,6 +198,207 @@ class ProductAPITests(KnowledgeTestBase):
         )
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+
+class ProductBulkDeleteTests(KnowledgeTestBase):
+    def test_delete_multiple_products_removes_vectors(self):
+        first = self.create_product()
+        second = self.create_product(name="USB Hub", sku="UH-100")
+        kept = self.create_product(name="Keyboard", sku="KB-1")
+        vector_service = FakeVectorService()
+
+        with patch(
+            "knowledge.api.v1.client.views.KnowledgeVectorService",
+            return_value=vector_service,
+        ):
+            response = self.client.post(
+                PRODUCT_DELETE_URL,
+                {
+                    "chatbot": self.chatbot.slug,
+                    "products": [str(first.pk), str(second.pk)],
+                },
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["data"]["deleted_count"], 2)
+        self.assertEqual(
+            list(Product.objects.filter(chatbot=self.chatbot)), [kept],
+        )
+        self.assertEqual(
+            sorted(vector_service.removed_catalog_items),
+            sorted(
+                [
+                    (KnowledgeSpaceTypes.PRODUCT, first.pk),
+                    (KnowledgeSpaceTypes.PRODUCT, second.pk),
+                ]
+            ),
+        )
+
+    def test_delete_rejects_unknown_or_foreign_products(self):
+        own = self.create_product()
+        foreign = self.create_product(chatbot=self.other_chatbot, sku="F-1")
+
+        response = self.client.post(
+            PRODUCT_DELETE_URL,
+            {
+                "chatbot": self.chatbot.slug,
+                "products": [str(own.pk), str(foreign.pk)],
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        # Nothing is deleted when any ID is invalid.
+        self.assertTrue(Product.objects.filter(pk=own.pk).exists())
+        self.assertTrue(Product.objects.filter(pk=foreign.pk).exists())
+
+
+@override_settings(GEMINI_EMBEDDING_BATCH_SIZE=2)
+class CatalogBatchTrainingTests(KnowledgeTestBase):
+    def run_training(self, embedding_service):
+        vector_service = FakeVectorService()
+        log = KnowledgeTrainingLog.objects.create(
+            chatbot=self.chatbot,
+            space=KnowledgeSpaceTypes.PRODUCT,
+        )
+        service = CatalogTrainingService(
+            embedding_service=embedding_service,
+            vector_service=vector_service,
+        )
+        return service, vector_service, log
+
+    def test_trains_pending_items_batch_by_batch(self):
+        products = [
+            self.create_product(name=f"Item {i}", sku=f"SKU-{i}")
+            for i in range(3)
+        ]
+        service, vector_service, log = self.run_training(FakeEmbeddingService())
+
+        service.run(log)
+
+        # 3 items with batch size 2 -> two embed + persist rounds.
+        self.assertEqual(
+            [len(ids) for _, ids, _ in vector_service.catalog_replacements],
+            [2, 1],
+        )
+        log.refresh_from_db()
+        self.assertEqual(log.processed_chunks, 3)
+        for product in products:
+            product.refresh_from_db()
+            self.assertEqual(product.status, StatusTypes.READY)
+
+    def test_failed_batch_keeps_earlier_batches_trained(self):
+        products = [
+            self.create_product(name=f"Item {i}", sku=f"SKU-{i}")
+            for i in range(3)
+        ]
+
+        class FailingSecondBatch(FakeEmbeddingService):
+            batches = 0
+
+            def embed_documents(self, texts, *, on_progress=None):
+                FailingSecondBatch.batches += 1
+                if FailingSecondBatch.batches == 2:
+                    raise RuntimeError("quota exceeded")
+                return super().embed_documents(texts, on_progress=on_progress)
+
+        service, vector_service, log = self.run_training(FailingSecondBatch())
+
+        with self.assertRaises(RuntimeError):
+            service.run(log)
+
+        statuses = []
+        for product in products:
+            product.refresh_from_db()
+            statuses.append(product.status)
+        self.assertEqual(
+            statuses,
+            [StatusTypes.READY, StatusTypes.READY, StatusTypes.FAILED],
+        )
+        self.assertEqual(products[2].error_message, "quota exceeded")
+        self.assertEqual(products[0].error_message, "")
+
+
+class ProductBulkRetrainTests(KnowledgeTestBase):
+    def test_retrain_selected_products(self):
+        failed = self.create_product(
+            status=StatusTypes.FAILED, error_message="quota exceeded",
+        )
+        ready = self.create_product(
+            name="USB Hub", sku="UH-100", status=StatusTypes.READY,
+        )
+        untouched = self.create_product(
+            name="Keyboard", sku="KB-1", status=StatusTypes.FAILED,
+        )
+
+        with fake_training_stack() as vector_service:
+            response = self.client.post(
+                PRODUCT_RETRAIN_URL,
+                {
+                    "chatbot": self.chatbot.slug,
+                    "products": [str(failed.pk), str(ready.pk)],
+                },
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["data"]["retrain_count"], 2)
+        self.assertIsNotNone(response.data["data"]["training_log"])
+        _, item_ids, _ = vector_service.catalog_replacements[0]
+        self.assertEqual(sorted(item_ids), sorted([failed.pk, ready.pk]))
+        failed.refresh_from_db()
+        untouched.refresh_from_db()
+        self.assertEqual(failed.status, StatusTypes.READY)
+        self.assertEqual(failed.error_message, "")
+        self.assertEqual(untouched.status, StatusTypes.FAILED)
+
+    def test_retrain_without_ids_retries_failed_and_pending(self):
+        failed = self.create_product(status=StatusTypes.FAILED)
+        pending = self.create_product(
+            name="USB Hub", sku="UH-100", status=StatusTypes.PENDING,
+        )
+        self.create_product(name="Keyboard", sku="KB-1", status=StatusTypes.READY)
+        self.create_product(
+            name="Old", sku="OLD-1", status=StatusTypes.FAILED, is_enabled=False,
+        )
+
+        with fake_training_stack() as vector_service:
+            response = self.client.post(
+                PRODUCT_RETRAIN_URL,
+                {"chatbot": self.chatbot.slug},
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["data"]["retrain_count"], 2)
+        _, item_ids, _ = vector_service.catalog_replacements[0]
+        self.assertEqual(sorted(item_ids), sorted([failed.pk, pending.pk]))
+
+    def test_retrain_without_ids_nothing_to_do(self):
+        self.create_product(status=StatusTypes.READY)
+
+        response = self.client.post(
+            PRODUCT_RETRAIN_URL,
+            {"chatbot": self.chatbot.slug},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["data"]["retrain_count"], 0)
+        self.assertIsNone(response.data["data"]["training_log"])
+
+    def test_retrain_rejects_disabled_or_foreign_products(self):
+        disabled = self.create_product(is_enabled=False)
+        foreign = self.create_product(chatbot=self.other_chatbot, sku="F-1")
+
+        for product in (disabled, foreign):
+            response = self.client.post(
+                PRODUCT_RETRAIN_URL,
+                {"chatbot": self.chatbot.slug, "products": [str(product.pk)]},
+                format="json",
+            )
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
 
 class ProductTemplateAndImportTests(KnowledgeTestBase):
