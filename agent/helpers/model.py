@@ -106,19 +106,21 @@ def chat_model(*, model_config=None):
     return ChatGemini(model=model_name_for(ChatMode.TEXT, model_config))
 
 
-def live_model(*, model_config=None):
+def live_model(*, model_config=None, speech_config=None):
     """The (costly) live model with its voice; ``model_config`` is
-    VegabotConfig ``live_llm_model``."""
+    VegabotConfig ``live_llm_model``. ``speech_config`` is the chatbot's
+    selected voice; without it, the configured default voice is used."""
     model_config = _as_dict(model_config)
     return ChatGemini(
         model=model_name_for(ChatMode.AUDIO, model_config),
-        speech_config=build_speech_config(model_config.get("voice_name")),
+        speech_config=speech_config
+        or build_speech_config(model_config.get("voice_name")),
     )
 
 
-def build_model(mode, *, model_config=None):
+def build_model(mode, *, model_config=None, speech_config=None):
     if mode == ChatMode.AUDIO:
-        return live_model(model_config=model_config)
+        return live_model(model_config=model_config, speech_config=speech_config)
     return chat_model(model_config=model_config)
 
 

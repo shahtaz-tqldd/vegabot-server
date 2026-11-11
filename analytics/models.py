@@ -67,6 +67,18 @@ class AIUsage(BaseMinModel):
     output_tokens = models.PositiveIntegerField(default=0)
     thinking_tokens = models.PositiveIntegerField(default=0)
     cached_input_tokens = models.PositiveIntegerField(default=0)
+    # Voice (Live) usage: per-modality tokens and the audio streamed.
+    audio_input_tokens = models.PositiveIntegerField(default=0)
+    audio_output_tokens = models.PositiveIntegerField(default=0)
+    media_input_tokens = models.PositiveIntegerField(
+        default=0, help_text="Image and video input tokens.",
+    )
+    audio_input_seconds = models.FloatField(
+        default=0, help_text="Seconds of user audio streamed to the model.",
+    )
+    audio_output_seconds = models.FloatField(
+        default=0, help_text="Seconds of agent audio the model produced.",
+    )
     model = models.CharField(max_length=120, blank=True, default="", db_index=True)
 
     class Meta:

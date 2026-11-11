@@ -25,7 +25,6 @@ SECURE_PROXY_SSL_HEADER = (
 )
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
-LOG_LEVEL = env("LOG_LEVEL", "INFO").strip().upper()
 
 LOGGING = {
     "version": 1,
@@ -44,7 +43,7 @@ LOGGING = {
     "loggers": {
         "app": {
             "handlers": ["console"],
-            "level": LOG_LEVEL,
+            "level": "INFO",
             "propagate": False,
         },
     },
@@ -62,9 +61,7 @@ SIMPLE_JWT = {
 
 # EMAILS
 EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
-EMAIL_USE_TLS = env_bool("EMAIL_USE_TLS", True)
 EMAIL_HOST = env("EMAIL_HOST", "")
-EMAIL_PORT = env_int("EMAIL_PORT", 587)
 EMAIL_HOST_USER = env("EMAIL_HOST_USER", "")
 EMAIL_HOST_PASSWORD = env("EMAIL_HOST_PASSWORD", "")
 DEFAULT_FROM_EMAIL = env(
@@ -168,13 +165,45 @@ GEMINI_CHAT_MAX_OUTPUT_TOKENS = env_int("GEMINI_CHAT_MAX_OUTPUT_TOKENS", 1024)
 AGENT_CLIENT_DEBUG = env_bool("AGENT_CLIENT_DEBUG", DEBUG)
 GEMINI_INPUT_COST_PER_MILLION = env_float("GEMINI_INPUT_COST_PER_MILLION", 0.30)
 GEMINI_OUTPUT_COST_PER_MILLION = env_float("GEMINI_OUTPUT_COST_PER_MILLION", 2.50)
-# Live (voice) model rates; default to the chat rates until configured.
-GEMINI_LIVE_INPUT_COST_PER_MILLION = env_float(
-    "GEMINI_LIVE_INPUT_COST_PER_MILLION", GEMINI_INPUT_COST_PER_MILLION,
+# Live (voice) model rates, USD. Live bills each modality separately;
+# defaults are the published gemini-3.8-live paid-tier prices.
+# GEMINI_LIVE_INPUT/OUTPUT_COST_PER_MILLION are older names for the text
+# rates and are still read as fallbacks.
+GEMINI_LIVE_TEXT_INPUT_COST_PER_MILLION = env_float(
+    "GEMINI_LIVE_TEXT_INPUT_COST_PER_MILLION",
+    env_float("GEMINI_LIVE_INPUT_COST_PER_MILLION", 0.75),
 )
-GEMINI_LIVE_OUTPUT_COST_PER_MILLION = env_float(
-    "GEMINI_LIVE_OUTPUT_COST_PER_MILLION", GEMINI_OUTPUT_COST_PER_MILLION,
+GEMINI_LIVE_AUDIO_INPUT_COST_PER_MILLION = env_float(
+    "GEMINI_LIVE_AUDIO_INPUT_COST_PER_MILLION", 3.00,
 )
+GEMINI_LIVE_MEDIA_INPUT_COST_PER_MILLION = env_float(
+    "GEMINI_LIVE_MEDIA_INPUT_COST_PER_MILLION", 1.00,
+)
+GEMINI_LIVE_TEXT_OUTPUT_COST_PER_MILLION = env_float(
+    "GEMINI_LIVE_TEXT_OUTPUT_COST_PER_MILLION",
+    env_float("GEMINI_LIVE_OUTPUT_COST_PER_MILLION", 4.50),
+)
+GEMINI_LIVE_AUDIO_OUTPUT_COST_PER_MILLION = env_float(
+    "GEMINI_LIVE_AUDIO_OUTPUT_COST_PER_MILLION", 12.00,
+)
+# Per-minute audio rates: used when the model reports no per-modality
+# token breakdown, priced on the measured audio duration instead.
+GEMINI_LIVE_AUDIO_INPUT_COST_PER_MINUTE = env_float(
+    "GEMINI_LIVE_AUDIO_INPUT_COST_PER_MINUTE", 0.005,
+)
+GEMINI_LIVE_AUDIO_OUTPUT_COST_PER_MINUTE = env_float(
+    "GEMINI_LIVE_AUDIO_OUTPUT_COST_PER_MINUTE", 0.018,
+)
+
+# CUSTOM VOICES (replicated voices for the Live model)
+# Live uses a 10-20 s sample; longer recordings are stored whole and
+# clipped when a voice session starts.
+CUSTOM_VOICE_MIN_SAMPLE_SECONDS = env_float("CUSTOM_VOICE_MIN_SAMPLE_SECONDS", 10.0)
+CUSTOM_VOICE_MAX_SAMPLE_SECONDS = env_float("CUSTOM_VOICE_MAX_SAMPLE_SECONDS", 60.0)
+CUSTOM_VOICE_LIVE_SAMPLE_SECONDS = env_float("CUSTOM_VOICE_LIVE_SAMPLE_SECONDS", 20.0)
+CUSTOM_VOICE_MAX_CONSENT_SECONDS = env_float("CUSTOM_VOICE_MAX_CONSENT_SECONDS", 30.0)
+CUSTOM_VOICE_MAX_UPLOAD_MB = env_float("CUSTOM_VOICE_MAX_UPLOAD_MB", 15.0)
+MAX_CUSTOM_VOICES_PER_CHATBOT = env_int("MAX_CUSTOM_VOICES_PER_CHATBOT", 5)
 
 # CLOUDFLARE R2 STORAGE
 R2_ACCOUNT_ID = env("R2_ACCOUNT_ID", "")

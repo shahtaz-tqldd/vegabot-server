@@ -9,6 +9,7 @@ from django.db.models import (
     FloatField,
     IntegerField,
     OuterRef,
+    Prefetch,
     Q,
     Subquery,
     Sum,
@@ -25,12 +26,14 @@ from app.services.r2 import upload_file
 from app.utils.pagination import CustomPagination
 from app.utils.response import APIResponse
 from chat.api.v1.client.serializers import (
+    ChatCartItemSerializer,
     ChatEscalationListSerializer,
     ChatEscalationQuerySerializer,
     ChatEscalationResolveSerializer,
     ChatMessageCreateSerializer,
     ChatMessageSerializer,
     ChatMessageUsageSerializer,
+    ChatOrderSerializer,
     ChatSessionCreateSerializer,
     ChatSessionDetailSerializer,
     ChatSessionListSerializer,
@@ -42,19 +45,41 @@ from chat.models import (
     BYTES_PER_MEGABYTE,
     MAX_ATTACHMENT_SIZE_MB,
     MAX_IMAGE_ATTACHMENT_SIZE_MB,
+    ChatCartItem,
     ChatEscalation,
     ChatMessage,
     ChatMessageAttachment,
+    ChatOrder,
     ChatSession,
 )
 from chat.services.attachments import process_attachment
 from chat.services.escalations import resolve_escalation
 from chat.utils.choices import (
     AttachmentProcessStatus,
+    CartItemStatus,
     ChatMessageAttachmentType,
     ChatMessageSenderType,
     EscalationStatus,
 )
+
+
+def _count_per_session(queryset):
+    """A correlated COUNT subquery over rows linked to the outer session.
+
+    Subqueries (not joined Count()s) keep each count independent of the
+    other annotations' joins.
+    """
+    return Coalesce(
+        Subquery(
+            queryset.filter(chat_session=OuterRef("pk"))
+            .order_by()
+            .values("chat_session")
+            .annotate(total=Count("pk"))
+            .values("total"),
+            output_field=IntegerField(),
+        ),
+        0,
+    )
 
 
 def session_list_queryset(user):
@@ -80,6 +105,12 @@ def session_list_queryset(user):
         visible_sessions(user)
         .annotate(
             message_count=Count("messages"),
+            cart_item_count=_count_per_session(ChatCartItem.objects.all()),
+            purchased_item_count=_count_per_session(
+                ChatCartItem.objects.filter(status=CartItemStatus.ORDERED),
+            ),
+            order_count=_count_per_session(ChatOrder.objects.all()),
+            escalation_count=_count_per_session(ChatEscalation.objects.all()),
             total_tokens=Coalesce(
                 Subquery(
                     session_usage.annotate(total=Sum("tokens")).values("total"),
@@ -195,6 +226,16 @@ class ChatSessionDetailView(ChatSessionObjectMixin, GenericAPIView):
     permission_classes = [IsAuthenticated]
     serializer_class = ChatSessionDetailSerializer
 
+    def get_session_queryset(self):
+        return super().get_session_queryset().prefetch_related(
+            Prefetch(
+                "messages",
+                queryset=ChatMessage.objects.select_related(
+                    "ai_usage",
+                ).prefetch_related("attachments"),
+            ),
+        )
+
     def get(self, request, *args, **kwargs):
         session = self.get_session()
         return APIResponse.success(
@@ -229,12 +270,77 @@ class ChatMessageListView(PaginatedListMixin, GenericAPIView):
             visible_sessions(self.request.user),
             pk=query_serializer.validated_data["session"],
         )
-        return session.messages.select_related("ai_usage")
+        return session.messages.select_related("ai_usage").prefetch_related(
+            "attachments",
+        )
 
     def get(self, request, *args, **kwargs):
         return self.paginated_response(
             self.get_queryset(),
             message="Chat messages fetched successfully.",
+        )
+
+
+class SessionCartItemListView(
+    ChatSessionObjectMixin, PaginatedListMixin, GenericAPIView,
+):
+    """Products added to one session's cart, oldest first.
+
+    Every line the agent added is listed with its current ``status``
+    (``in_cart``, ``ordered``, ``removed``); filter with ``?status=``.
+    """
+
+    permission_classes = [IsAuthenticated]
+    serializer_class = ChatCartItemSerializer
+
+    def get(self, request, *args, **kwargs):
+        queryset = self.get_session().cart_items.order_by("created_at", "id")
+        status_param = request.query_params.get("status")
+        if status_param:
+            if status_param not in CartItemStatus.values:
+                return APIResponse.error(
+                    errors={"status": f"Must be one of {CartItemStatus.values}."},
+                    message="Invalid status filter.",
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            queryset = queryset.filter(status=status_param)
+        return self.paginated_response(
+            queryset,
+            message="Cart items fetched successfully.",
+        )
+
+
+class SessionOrderListView(
+    ChatSessionObjectMixin, PaginatedListMixin, GenericAPIView,
+):
+    """Orders placed in one session, newest first, with their products."""
+
+    permission_classes = [IsAuthenticated]
+    serializer_class = ChatOrderSerializer
+
+    def get(self, request, *args, **kwargs):
+        queryset = self.get_session().orders.prefetch_related("items")
+        return self.paginated_response(
+            queryset,
+            message="Orders fetched successfully.",
+        )
+
+
+class SessionEscalationListView(
+    ChatSessionObjectMixin, PaginatedListMixin, GenericAPIView,
+):
+    """Human escalations raised in one session, newest first."""
+
+    permission_classes = [IsAuthenticated]
+    serializer_class = ChatEscalationListSerializer
+
+    def get(self, request, *args, **kwargs):
+        queryset = self.get_session().escalations.select_related(
+            "chat_session__chatbot",
+        )
+        return self.paginated_response(
+            queryset,
+            message="Escalations fetched successfully.",
         )
 
 

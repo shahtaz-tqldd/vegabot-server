@@ -7,6 +7,14 @@ class TokenUsageSchema(BaseModel):
     thinking_tokens: int = 0
     cached_input_tokens: int = 0
     total_tokens: int = 0
+    # Per-modality breakdown reported by the model (the Live model bills
+    # each modality at its own rate). Text = the rest of the tokens.
+    audio_input_tokens: int = 0
+    media_input_tokens: int = 0  # image + video
+    audio_output_tokens: int = 0
+    # Audio actually streamed, measured by the voice session.
+    audio_input_seconds: float = 0.0
+    audio_output_seconds: float = 0.0
 
 
 class EscalationSchema(BaseModel):

@@ -68,6 +68,14 @@ def create_user_message(
     return message
 
 
+def elapsed_ms(start, end):
+    """Milliseconds from ``start`` to ``end`` (datetimes), never negative;
+    None when either is unknown."""
+    if start is None or end is None:
+        return None
+    return max(0, int((end - start).total_seconds() * 1000))
+
+
 def create_agent_message(
     session,
     content,
@@ -75,24 +83,28 @@ def create_agent_message(
     preceding_message=None,
     mode=ChatMode.TEXT,
     recommendations=None,
+    response_time_ms=None,
 ):
     """Store the agent's reply and its response latency.
 
-    ``response_time_ms`` is measured from the preceding user message so
-    the stats endpoint can report average response time.
+    ``response_time_ms`` is the delay between the user's input and the
+    agent's first output (first streamed text or audio), as measured by
+    the caller. Without it, the delay is measured from the preceding user
+    message to now, i.e. to the end of the reply.
     """
-    response_time_ms = None
-    if preceding_message is None:
-        preceding_message = (
-            session.messages.filter(
-                sender_type=ChatMessageSenderType.USER,
+    if response_time_ms is None:
+        if preceding_message is None:
+            preceding_message = (
+                session.messages.filter(
+                    sender_type=ChatMessageSenderType.USER,
+                )
+                .order_by("-created_at", "-id")
+                .first()
             )
-            .order_by("-created_at", "-id")
-            .first()
-        )
-    if preceding_message is not None:
-        delta = timezone.now() - preceding_message.created_at
-        response_time_ms = max(0, int(delta.total_seconds() * 1000))
+        if preceding_message is not None:
+            response_time_ms = elapsed_ms(
+                preceding_message.created_at, timezone.now(),
+            )
 
     return ChatMessage.objects.create(
         chat_session=session,

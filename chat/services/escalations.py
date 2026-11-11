@@ -18,7 +18,8 @@ def record_escalation(
     """Store an escalation for an unanswered query.
 
     Duplicate open escalations for the same question in one session are
-    idempotent: the existing escalation is returned.
+    idempotent: the existing escalation is returned. ``was_created`` on the
+    result tells the two apart (only new escalations notify).
     """
     question = (question or "").strip()
     if not question:
@@ -34,15 +35,18 @@ def record_escalation(
         .first()
     )
     if escalation is not None:
+        escalation.was_created = False
         return escalation
 
-    return ChatEscalation.objects.create(
+    escalation = ChatEscalation.objects.create(
         chat_session=session,
         chat_message=message,
         question=question,
         reason=reason,
         created_by=created_by or session.created_by,
     )
+    escalation.was_created = True
+    return escalation
 
 
 def resolve_escalation(escalation, *, resolution_note="", resolved_by=None):

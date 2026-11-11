@@ -5,9 +5,8 @@ from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.permissions import IsAuthenticated
 from rest_framework_simplejwt.views import TokenRefreshView
 
-from accounts.api.v1.client.serializers import (
+from accounts.api.v1.serializers import (
     ChangePasswordSerializer,
-    GoogleLoginSerializer,
     LoginSerializer,
     RegisterSerializer,
     RequestPasswordResetSerializer,
@@ -97,24 +96,6 @@ class LoginView(GenericAPIView):
             data=serializer.validated_data,
             message="User logged in.",
         )
-
-
-class GoogleLoginView(GenericAPIView):
-    """Create or log in an account from a Firebase Google identity."""
-
-    serializer_class = GoogleLoginSerializer
-
-    def post(self, request, *args, **kwargs):
-        serializer = self.get_serializer(data=request.data)
-        if not serializer.is_valid():
-            return validation_error_response(serializer.errors, "Google login failed.")
-
-        try:
-            tokens = serializer.save()
-        except drf_serializers.ValidationError as exc:
-            return validation_error_response(exc.detail, "Google login failed.")
-
-        return APIResponse.success(data=tokens, message="User logged in.")
 
 
 class RefreshTokenView(TokenRefreshView):

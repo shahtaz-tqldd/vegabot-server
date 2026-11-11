@@ -1,8 +1,9 @@
 """The per-chatbot inputs an agent turn needs, cached across turns.
 
-The profile carries the chatbot's identity fields plus which knowledge
-spaces (documents/products/services) it actually has, so agents are built
-without per-turn database reads. Invalidation is signal-driven
+The profile carries the chatbot's identity fields, which knowledge spaces
+(documents/products/services) it uses (enabled on the chatbot AND trained),
+and its add-on features (cart/order taking), so agents are built without
+per-turn database reads. Invalidation is signal-driven
 (chatbot/knowledge writes bump the version); the TTL is a safety net.
 """
 
@@ -31,6 +32,11 @@ _CHATBOT_FIELDS = (
     "timezone",
     "status",
     "is_deleted",
+    "knowledge_enabled",
+    "products_enabled",
+    "services_enabled",
+    "product_ordering_enabled",
+    "speaking_pace",
 )
 
 
@@ -51,19 +57,21 @@ def agent_profile(chatbot):
     chatbot_fields = {
         field: getattr(chatbot, field) for field in _CHATBOT_FIELDS
     }
+    has_products = chatbot.products_enabled and Product.objects.filter(
+        chatbot_id=chatbot.id,
+    ).exists()
     return {
         "chatbot": chatbot_fields,
         "policy": global_instruction(chatbot),
         "spaces": {
-            KnowledgeSpaceTypes.DOCUMENT: KnowledgeBase.objects.filter(
-                chatbot_id=chatbot.id,
-            ).exists(),
-            KnowledgeSpaceTypes.PRODUCT: Product.objects.filter(
-                chatbot_id=chatbot.id,
-            ).exists(),
-            KnowledgeSpaceTypes.SERVICE: Service.objects.filter(
-                chatbot_id=chatbot.id,
-            ).exists(),
+            KnowledgeSpaceTypes.DOCUMENT: chatbot.knowledge_enabled
+            and KnowledgeBase.objects.filter(chatbot_id=chatbot.id).exists(),
+            KnowledgeSpaceTypes.PRODUCT: has_products,
+            KnowledgeSpaceTypes.SERVICE: chatbot.services_enabled
+            and Service.objects.filter(chatbot_id=chatbot.id).exists(),
+        },
+        "features": {
+            "ordering": has_products and chatbot.ordering_enabled,
         },
     }
 

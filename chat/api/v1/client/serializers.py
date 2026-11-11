@@ -1,12 +1,17 @@
+from django.core.exceptions import ObjectDoesNotExist
 from rest_framework import serializers
 
 from chat.models import (
     MAX_ATTACHMENTS_PER_MESSAGE,
+    ChatCartItem,
     ChatEscalation,
     ChatMessage,
     ChatMessageAttachment,
+    ChatOrder,
     ChatSession,
 )
+from chat.services.commerce import session_activity_counts
+from chat.utils.choices import ChatMessageSenderType
 from chatbot.models import Chatbot
 
 
@@ -96,7 +101,12 @@ class ChatSessionChatbotSerializer(serializers.Serializer):
 
 
 class ChatMessageSerializer(serializers.ModelSerializer):
+    """One message. Agent messages carry the token usage and estimated
+    cost of generating them (``usage``); user messages have ``null``
+    (the user's input tokens are counted in the reply's usage)."""
+
     attachments = ChatMessageAttachmentSerializer(many=True, read_only=True)
+    usage = serializers.SerializerMethodField()
 
     class Meta:
         model = ChatMessage
@@ -108,27 +118,17 @@ class ChatMessageSerializer(serializers.ModelSerializer):
             "attachments",
             "recommendations",
             "response_time_ms",
+            "usage",
             "created_at",
         )
         read_only_fields = fields
 
-
-class ChatMessageUsageSerializer(ChatMessageSerializer):
-    """Message timeline entry with its AI token usage and cost.
-
-    Only for the authenticated message list (internal analytics); socket
-    and reply payloads keep using ``ChatMessageSerializer``.
-    """
-
-    usage = serializers.SerializerMethodField()
-
-    class Meta(ChatMessageSerializer.Meta):
-        fields = ChatMessageSerializer.Meta.fields + ("usage",)
-        read_only_fields = fields
-
     def get_usage(self, obj):
-        usage = getattr(obj, "ai_usage", None)
-        if usage is None:
+        if obj.sender_type != ChatMessageSenderType.AGENT:
+            return None
+        try:
+            usage = obj.ai_usage
+        except ObjectDoesNotExist:
             return None
         return {
             "total_tokens": usage.tokens,
@@ -136,9 +136,17 @@ class ChatMessageUsageSerializer(ChatMessageSerializer):
             "output_tokens": usage.output_tokens,
             "thinking_tokens": usage.thinking_tokens,
             "cached_input_tokens": usage.cached_input_tokens,
+            "audio_input_tokens": usage.audio_input_tokens,
+            "audio_output_tokens": usage.audio_output_tokens,
+            "audio_input_seconds": usage.audio_input_seconds,
+            "audio_output_seconds": usage.audio_output_seconds,
             "cost": float(usage.cost),
             "model": usage.model,
         }
+
+
+# Kept for existing imports; every message payload now includes usage.
+ChatMessageUsageSerializer = ChatMessageSerializer
 
 
 class ChatSessionListSerializer(serializers.ModelSerializer):
@@ -150,6 +158,10 @@ class ChatSessionListSerializer(serializers.ModelSerializer):
     total_tokens = serializers.IntegerField(read_only=True, default=0)
     total_cost = serializers.SerializerMethodField()
     avg_response_time_ms = serializers.SerializerMethodField()
+    cart_item_count = serializers.IntegerField(read_only=True, default=0)
+    purchased_item_count = serializers.IntegerField(read_only=True, default=0)
+    order_count = serializers.IntegerField(read_only=True, default=0)
+    escalation_count = serializers.IntegerField(read_only=True, default=0)
 
     class Meta:
         model = ChatSession
@@ -158,6 +170,10 @@ class ChatSessionListSerializer(serializers.ModelSerializer):
             "chatbot",
             "status",
             "message_count",
+            "cart_item_count",
+            "purchased_item_count",
+            "order_count",
+            "escalation_count",
             "last_message",
             "total_tokens",
             "total_cost",
@@ -204,6 +220,70 @@ class ChatSessionDetailSerializer(serializers.ModelSerializer):
         )
         read_only_fields = fields
 
+    def to_representation(self, instance):
+        """Adds the session's activity counts (same keys as the list)."""
+        data = super().to_representation(instance)
+        data.update(session_activity_counts(instance.pk))
+        return data
+
+
+class ChatCartItemSerializer(serializers.ModelSerializer):
+    """One product the agent added to a session's cart."""
+
+    session = serializers.UUIDField(source="chat_session_id", read_only=True)
+    product = serializers.UUIDField(
+        source="product_id", read_only=True, allow_null=True,
+    )
+    order = serializers.UUIDField(
+        source="order_id", read_only=True, allow_null=True,
+    )
+    line_total = serializers.DecimalField(
+        max_digits=14, decimal_places=2, read_only=True,
+    )
+
+    class Meta:
+        model = ChatCartItem
+        fields = (
+            "id",
+            "session",
+            "product",
+            "order",
+            "product_name",
+            "sku",
+            "product_url",
+            "image_url",
+            "unit_price",
+            "currency",
+            "quantity",
+            "line_total",
+            "status",
+            "created_at",
+            "updated_at",
+        )
+        read_only_fields = fields
+
+
+class ChatOrderSerializer(serializers.ModelSerializer):
+    """A confirmed order with the products it contains."""
+
+    session = serializers.UUIDField(source="chat_session_id", read_only=True)
+    items = ChatCartItemSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = ChatOrder
+        fields = (
+            "id",
+            "session",
+            "order_number",
+            "status",
+            "item_count",
+            "total_amount",
+            "currency",
+            "items",
+            "created_at",
+        )
+        read_only_fields = fields
+
 
 class ChatEscalationListSerializer(serializers.ModelSerializer):
     """An unanswered query stored for human follow-up."""
@@ -212,7 +292,9 @@ class ChatEscalationListSerializer(serializers.ModelSerializer):
     message = serializers.UUIDField(
         source="chat_message_id", read_only=True, allow_null=True,
     )
-    chatbot = ChatSessionChatbotSerializer(read_only=True)
+    chatbot = ChatSessionChatbotSerializer(
+        source="chat_session.chatbot", read_only=True,
+    )
 
     class Meta:
         model = ChatEscalation

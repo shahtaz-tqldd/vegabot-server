@@ -21,7 +21,8 @@ def agent_reply_exists(session, user_message_id):
 
 
 def record_usage(*, chatbot, session, message, response, model_name):
-    if response["token"].get("total_tokens", 0):
+    token = response["token"]
+    if token.get("total_tokens", 0) or token.get("audio_output_seconds", 0):
         record_ai_usage(
             chatbot=chatbot,
             chat_session=session,
@@ -43,11 +44,14 @@ def persist_reply(
     user_message=None,
     mode=ChatMode.TEXT,
     source_metadata=(),
+    response_time_ms=None,
 ):
     """Persist one agent message and its usage in one transaction.
 
-    Returns the client payload: the serialized message (with its
-    recommendation cards) and the cited sources.
+    ``response_time_ms`` is the input-to-first-output delay measured by
+    the caller (see ``create_agent_message``). Returns the client payload:
+    the serialized message (with its recommendation cards and usage) and
+    the cited sources.
     """
     result = response["result"]
     message = create_agent_message(
@@ -56,6 +60,7 @@ def persist_reply(
         preceding_message=user_message,
         mode=mode,
         recommendations=result.get("recommendations") or [],
+        response_time_ms=response_time_ms,
     )
     record_usage(
         chatbot=chatbot,

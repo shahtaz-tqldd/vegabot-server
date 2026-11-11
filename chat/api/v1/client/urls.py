@@ -6,6 +6,17 @@ chat_sessions = [
     path("list/", views.ChatSessionListView.as_view(), name="chat-session-list"),
     path("details/", views.ChatSessionDetailView.as_view(), name="chat-session-detail"),
     path("delete/", views.ChatSessionDeleteView.as_view(), name="chat-session-delete"),
+    path(
+        "cart-items/",
+        views.SessionCartItemListView.as_view(),
+        name="chat-session-cart-items",
+    ),
+    path("orders/", views.SessionOrderListView.as_view(), name="chat-session-orders"),
+    path(
+        "escalations/",
+        views.SessionEscalationListView.as_view(),
+        name="chat-session-escalations",
+    ),
 ]
 
 chat_messages = [

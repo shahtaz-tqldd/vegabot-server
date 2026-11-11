@@ -7,6 +7,7 @@ django-cors-headers==4.6.0
 python-dotenv==1.0.1
 psycopg2-binary==2.9.10
 pgvector==0.3.6
+numpy==2.5.4
 celery[redis]==5.4.0
 # kombu 5.7 requires redis-py >= 6.1, which channels-redis 4.2.x does not
 # ship with; 5.5.x is the line paired with celery 5.4.
@@ -16,7 +17,6 @@ gunicorn==23.0.0
 uvicorn[standard]==0.34.0
 Pillow==11.1.0
 google-adk==2.1.0
-firebase-admin==6.6.0
 SQLAlchemy==2.0.41
 asyncpg==0.30.0
 openpyxl==3.1.5

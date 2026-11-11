@@ -4,7 +4,7 @@ from django.conf.urls.static import static
 from django.conf import settings
 
 v1_client_urls = [
-    path("accounts/", include("accounts.api.v1.client.urls")),
+    path("accounts/", include("accounts.api.v1.urls")),
     path("base/", include("base.api.v1.client.urls")),
     path("chatbots/", include("chatbot.api.v1.client.urls")),
     path("chat/", include("chat.api.v1.client.urls")),
@@ -13,7 +13,6 @@ v1_client_urls = [
 ]
 
 v1_admin_urls = [
-    path("accounts/", include("accounts.api.v1.admin.urls")),
     path("base/", include("base.api.v1.admin.urls")),
     path("chatbots/", include("chatbot.api.v1.admin.urls")),
     path("analytics/", include("analytics.api.v1.admin.urls")),

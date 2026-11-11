@@ -260,3 +260,81 @@ class ChatbotClientAPITestCase(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
         demo.refresh_from_db()
         self.assertFalse(demo.is_deleted)
+
+
+class ChatbotFeatureTests(ChatbotClientAPITestCase):
+    def test_create_defaults_enable_all_sources_without_ordering(self):
+        response = self.client.post(
+            CREATE_URL,
+            {"chatbot_name": "Defaults", "business_type": "ecommerce"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        data = response.data["data"]
+        self.assertTrue(data["knowledge_enabled"])
+        self.assertTrue(data["products_enabled"])
+        self.assertTrue(data["services_enabled"])
+        self.assertFalse(data["product_ordering_enabled"])
+
+    def test_create_with_chosen_features(self):
+        response = self.client.post(
+            CREATE_URL,
+            {
+                "chatbot_name": "Shop",
+                "business_type": "ecommerce",
+                "services_enabled": False,
+                "product_ordering_enabled": True,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        chatbot = Chatbot.objects.get(pk=response.data["data"]["id"])
+        self.assertFalse(chatbot.services_enabled)
+        self.assertTrue(chatbot.ordering_enabled)
+
+    def test_ordering_requires_products(self):
+        response = self.client.post(
+            CREATE_URL,
+            {
+                "chatbot_name": "Services Only",
+                "business_type": "consulting",
+                "products_enabled": False,
+                "product_ordering_enabled": True,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("product_ordering_enabled", response.data["errors"])
+
+    def test_disabling_products_on_update_keeps_ordering_consistent(self):
+        chatbot = self.create_chatbot(
+            created_by=self.user, product_ordering_enabled=True,
+        )
+
+        response = self.client.patch(
+            f"{UPDATE_URL}?chatbot={chatbot.slug}",
+            {"products_enabled": False},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("product_ordering_enabled", response.data["errors"])
+
+    def test_at_least_one_source_required(self):
+        response = self.client.post(
+            CREATE_URL,
+            {
+                "chatbot_name": "Empty",
+                "business_type": "ecommerce",
+                "knowledge_enabled": False,
+                "products_enabled": False,
+                "services_enabled": False,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("knowledge_enabled", response.data["errors"])

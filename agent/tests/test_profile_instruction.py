@@ -147,3 +147,56 @@ class GlobalInstructionTests(TestCase):
         self.assertIn("Never discuss politics.", policy)
         self.assertIn("Hand off on refund complaints.", policy)
         self.assertIn("request_human_escalation", policy)
+
+
+class FeatureProfileTests(TestCase):
+    def setUp(self):
+        cache.clear()
+        self.user = User.objects.create_user(
+            email="features@example.com", password="x",
+        )
+
+    def make_chatbot(self, **features):
+        chatbot = Chatbot.objects.create(
+            chatbot_name="Feature Bot",
+            business_type="ecommerce",
+            created_by=self.user,
+            **features,
+        )
+        Product.objects.create(chatbot=chatbot, name="Widget", created_by=self.user)
+        Service.objects.create(chatbot=chatbot, name="Repair", created_by=self.user)
+        return chatbot
+
+    def test_disabled_sources_are_off_even_with_content(self):
+        profile = agent_profile(
+            self.make_chatbot(products_enabled=False, services_enabled=True),
+        )
+
+        self.assertFalse(profile["spaces"]["product"])
+        self.assertTrue(profile["spaces"]["service"])
+        self.assertFalse(profile["features"]["ordering"])
+
+    def test_ordering_feature_follows_products(self):
+        on = agent_profile(self.make_chatbot(product_ordering_enabled=True))
+        off = agent_profile(self.make_chatbot())
+
+        self.assertTrue(on["features"]["ordering"])
+        self.assertFalse(off["features"]["ordering"])
+
+    def test_ordering_section_only_when_ordering_enabled(self):
+        spaces = {"document": False, "product": True, "service": False}
+        with_ordering = build_instruction(
+            {"spaces": spaces, "features": {"ordering": True}},
+        )
+        without = build_instruction({"spaces": spaces, "features": {}})
+        no_products = build_instruction(
+            {
+                "spaces": {**spaces, "product": False, "service": True},
+                "features": {"ordering": True},
+            },
+        )
+
+        self.assertIn("add_to_cart", with_ordering)
+        self.assertIn("place_order", with_ordering)
+        self.assertNotIn("add_to_cart", without)
+        self.assertNotIn("add_to_cart", no_products)

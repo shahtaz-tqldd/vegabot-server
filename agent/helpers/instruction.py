@@ -9,8 +9,16 @@ mode adds only its output format: text replies cite sources inline;
 voice replies are short spoken prose.
 """
 
-from agent.tools import ESCALATION_TOOL, RECOMMENDATION_TOOL
+from agent.tools import (
+    ADD_TO_CART_TOOL,
+    ESCALATION_TOOL,
+    PLACE_ORDER_TOOL,
+    RECOMMENDATION_TOOL,
+    REMOVE_FROM_CART_TOOL,
+    VIEW_CART_TOOL,
+)
 from chat.utils.choices import ChatMode
+from chatbot.utils.voices import SPEAKING_PACE_INSTRUCTIONS
 
 CORE = f"""\
 Answering
@@ -84,6 +92,24 @@ Recommending
   a policy) where nothing is being recommended.
 """
 
+ORDERING = f"""\
+Cart and orders
+- When the customer asks to add or buy a product, call {ADD_TO_CART_TOOL}
+  with the product's `ref` from search_products (search first if it was
+  not searched yet) and the quantity they asked for (default 1). Never
+  add products the customer did not ask for.
+- To remove a product, call {REMOVE_FROM_CART_TOOL} with its `ref`. To
+  answer questions about the cart, call {VIEW_CART_TOOL}.
+- Before ordering, call {VIEW_CART_TOOL}, read the items, quantities and
+  total (with currency) back to the customer, and ask them to confirm.
+  Only after they explicitly confirm, call {PLACE_ORDER_TOOL}, then share
+  the order number it returns.
+- Totals come only from the cart tools; never calculate them yourself.
+- Never ask for payment or card details; payment is handled outside
+  the chat.
+- Services cannot be added to the cart.
+"""
+
 VOICE = """\
 Voice
 - Your replies are spoken aloud. Keep them short and conversational, a
@@ -96,9 +122,15 @@ def build_instruction(profile, *, business_policy="", mode=ChatMode.TEXT):
     spaces = profile.get("spaces") or {}
     has_knowledge = any(spaces.values())
     recommends = bool(spaces.get("product") or spaces.get("service"))
+    ordering = bool(
+        spaces.get("product") and (profile.get("features") or {}).get("ordering")
+    )
 
     if mode == ChatMode.AUDIO:
-        output_format = VOICE
+        pace = SPEAKING_PACE_INSTRUCTIONS.get(
+            (profile.get("chatbot") or {}).get("speaking_pace"), "",
+        )
+        output_format = f"{VOICE.rstrip()}\n- {pace}\n" if pace else VOICE
     elif has_knowledge:
         output_format = TEXT_CITATIONS
     else:
@@ -111,6 +143,7 @@ def build_instruction(profile, *, business_policy="", mode=ChatMode.TEXT):
         PRODUCTS if spaces.get("product") else "",
         SERVICES if spaces.get("service") else "",
         RECOMMENDATIONS if recommends else "",
+        ORDERING if ordering else "",
         output_format,
     ]
     return "\n\n".join(

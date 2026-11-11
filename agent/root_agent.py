@@ -11,20 +11,32 @@ from chat.utils.choices import ChatMode
 AGENT_NAME = "assistant"
 
 
-def build_root_agent(chatbot, session, *, profile, mode=ChatMode.TEXT, model_config=None):
+def build_root_agent(
+    chatbot,
+    session,
+    *,
+    profile,
+    mode=ChatMode.TEXT,
+    model_config=None,
+    speech_config=None,
+):
     """The customer-facing agent for one conversation, in one chat mode.
 
     Policy, knowledge tools, and escalation are identical in both modes;
     the mode selects the model (cheap chat model for text, live model with
     voice for audio), the reply format, and the recommendation mechanism.
     Tools and prompt sections are conditional on the knowledge spaces the
-    chatbot actually has (documents/products/services).
+    chatbot uses (documents/products/services) and its features (cart and
+    order taking).
     """
     spaces = profile.get("spaces") or {}
+    features = profile.get("features") or {}
     return LlmAgent(
         name=AGENT_NAME,
         mode="chat",
-        model=build_model(mode, model_config=model_config),
+        model=build_model(
+            mode, model_config=model_config, speech_config=speech_config,
+        ),
         description="Customer-facing assistant for this business.",
         instruction=build_instruction(
             profile,
@@ -35,6 +47,7 @@ def build_root_agent(chatbot, session, *, profile, mode=ChatMode.TEXT, model_con
             chatbot.id,
             session,
             spaces=[space for space, enabled in spaces.items() if enabled],
+            ordering=bool(features.get("ordering")),
             mode=mode,
         ),
         generate_content_config=generation_config(
