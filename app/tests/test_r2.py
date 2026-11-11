@@ -15,7 +15,7 @@ from base.signals import delete_public_asset_with_record
 
 
 @override_settings(
-    R2_BUCKET_NAME="dison-chatbot",
+    R2_BUCKET_NAME="vegabot-chatbot",
     R2_PUBLIC_URL="https://assets.example.com",
     R2_IMAGES_PREFIX="images",
 )
@@ -75,7 +75,7 @@ class R2StorageTests(SimpleTestCase):
         )
         self.client.upload_fileobj.assert_called_once_with(
             document,
-            "dison-chatbot",
+            "vegabot-chatbot",
             "files/chat/attachment-1.pdf",
             ExtraArgs={"ContentType": "application/pdf"},
         )
@@ -96,7 +96,7 @@ class R2StorageTests(SimpleTestCase):
 
         self.assertEqual(result["result"], "deleted")
         self.client.delete_object.assert_called_once_with(
-            Bucket="dison-chatbot",
+            Bucket="vegabot-chatbot",
             Key="images/users/avatar.png",
         )
 

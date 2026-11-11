@@ -1,6 +1,6 @@
-# dison Backend
+# Vegabot Backend
 
-dison Backend is the server-side application for a multi-tenant, AI-assisted customer support and lead engagement platform. It provides REST APIs for the management applications and public widget, WebSocket connections for live conversations, and background workers for AI and knowledge-processing workloads.
+Vegabot Backend is the server-side application for a multi-tenant, AI-assisted customer support and lead engagement platform. It provides REST APIs for the management applications and public widget, WebSocket connections for live conversations, and background workers for AI and knowledge-processing workloads.
 
 This document is intentionally focused on the engineering architecture, dependencies, configuration, and local operation of the backend.
 
@@ -106,7 +106,7 @@ Provider credentials are not required for the containers and core application to
 4. Verify the application:
 
    ```bash
-   docker compose -p dison --env-file .env -f docker/compose.dev.yml ps
+   docker compose -p Vegabot --env-file .env -f docker/compose.dev.yml ps
    ```
 
    The REST API is available at `http://localhost:8007`, WebSockets at `ws://localhost:8008`, and Django admin at `http://localhost:8007/admin/`.
@@ -114,7 +114,7 @@ Provider credentials are not required for the containers and core application to
 5. Stop the stack:
 
    ```bash
-   docker compose -p dison --env-file .env -f docker/compose.dev.yml down
+   docker compose -p Vegabot --env-file .env -f docker/compose.dev.yml down
    ```
 
 Database and Redis data are retained in Docker volumes.
@@ -158,6 +158,8 @@ Gemini and ADK use Vertex AI with Application Default Credentials. Configure:
 | `GOOGLE_APPLICATION_CREDENTIALS` | Path inside the runtime to Application Default Credentials. |
 | `GEMINI_CHAT_MODEL` | Gemini model used for generated responses. |
 | `GEMINI_EMBEDDING_MODEL`, `GEMINI_EMBEDDING_DIMENSIONS` | Embedding model and pgvector dimensions. |
+| `GEMINI_EMBEDDING_BATCH_SIZE` | Texts per embedding request when the backend supports batching (Gemini API, or Vertex `:predict` models such as `gemini-embedding-001`). Vertex `gemini-embedding-2` only accepts one text per request. |
+| `GEMINI_EMBEDDING_USE_VERTEX`, `GEMINI_API_KEY` | Embed through Vertex AI (default) or, when disabled, the Gemini Developer API with an API key. |
 | `GEMINI_INPUT_COST_PER_MILLION`, `GEMINI_OUTPUT_COST_PER_MILLION` | Rates used for internal AI cost accounting. |
 | `KNOWLEDGE_*` | File, page, row, item, chunk-size, and overlap safeguards for ingestion. |
 
@@ -188,7 +190,7 @@ SUPERUSER_PASSWORD=replace-with-a-strong-password
 If a superuser already exists, automatic creation is skipped. It can also be run manually:
 
 ```bash
-docker compose -p dison --env-file .env -f docker/compose.dev.yml exec wsgi \
+docker compose -p Vegabot --env-file .env -f docker/compose.dev.yml exec wsgi \
   python manage.py create_superuser
 ```
 
@@ -198,21 +200,21 @@ Run Django commands inside the WSGI container:
 
 ```bash
 # Create and apply migrations
-docker compose -p dison --env-file .env -f docker/compose.dev.yml exec wsgi \
+docker compose -p Vegabot --env-file .env -f docker/compose.dev.yml exec wsgi \
   python manage.py makemigrations
-docker compose -p dison --env-file .env -f docker/compose.dev.yml exec wsgi \
+docker compose -p Vegabot --env-file .env -f docker/compose.dev.yml exec wsgi \
   python manage.py migrate
 
 # Run the test suite
-docker compose -p dison --env-file .env -f docker/compose.dev.yml exec wsgi \
+docker compose -p Vegabot --env-file .env -f docker/compose.dev.yml exec wsgi \
   python manage.py test
 
 # Open a Django shell
-docker compose -p dison --env-file .env -f docker/compose.dev.yml exec wsgi \
+docker compose -p Vegabot --env-file .env -f docker/compose.dev.yml exec wsgi \
   python manage.py shell
 
 # Follow service logs
-docker compose -p dison --env-file .env -f docker/compose.dev.yml logs -f \
+docker compose -p Vegabot --env-file .env -f docker/compose.dev.yml logs -f \
   wsgi asgi celery-worker celery-beat
 ```
 

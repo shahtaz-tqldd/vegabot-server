@@ -11,13 +11,16 @@ base_patterns = [
     path("delete/", views.KnowledgeDocumentDeleteView.as_view(), name="knowledge-base-delete"),
 ]
 
-# 2. Products: template, import, list, disable, and retrain-on-update
+# 2. Products: template, import, list, disable, retrain-on-update, bulk delete, bulk retrain
 product_patterns = [
     path("template/", views.ProductTemplateView.as_view(), name="product-template"),
     path("import/", views.ProductUploadView.as_view(), name="product-import"),
     path("list/", views.ProductListView.as_view(), name="product-list"),
     path("disable/", views.ProductDisableView.as_view(), name="product-disable"),
     path("update/", views.ProductUpdateView.as_view(), name="product-update"),
+    path("delete/", views.ProductBulkDeleteView.as_view(), name="product-delete"),
+    path("retrain/", views.ProductBulkRetrainView.as_view(), name="product-retrain"),
+    path("retrain/", views.ProductBulkRetrainView.as_view(), name="product-retrain"),
 ]
 
 # 3. Services: template, import, add (single/bulk), list, remove, update

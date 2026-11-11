@@ -11,7 +11,7 @@ from google.adk.sessions import DatabaseSessionService
 # Text and voice turns share one ADK app (and so one conversation memory
 # per chat session). The name predates the merge; keeping it preserves
 # the history of existing sessions.
-APP_NAME = "dison_chat_agent"
+APP_NAME = "vegabot_agent"
 
 COMPACTION_INTERVAL = 4
 COMPACTION_OVERLAP = 1

@@ -3,6 +3,10 @@ from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APITestCase
 
+from decimal import Decimal
+
+from analytics.models import AIUsage
+from analytics.utils.choices import AIUsageType
 from chat.models import ChatMessage, ChatSession
 from chat.utils.choices import ChatMessageSenderType, ChatSessionStatus
 from chatbot.models import Chatbot
@@ -61,6 +65,19 @@ class ChatClientAPITestCase(APITestCase):
             sender_type=sender_type,
             content=content,
             response_time_ms=response_time_ms,
+        )
+
+    def create_usage(self, message, *, tokens, cost):
+        return AIUsage.objects.create(
+            chatbot=message.chat_session.chatbot,
+            chat_session=message.chat_session,
+            chat_message=message,
+            usage_type=AIUsageType.CHAT,
+            tokens=tokens,
+            input_tokens=tokens - 10,
+            output_tokens=10,
+            cost=Decimal(cost),
+            model="gemini-test",
         )
 
 
@@ -172,6 +189,45 @@ class ChatSessionListTests(ChatClientAPITestCase):
         self.assertEqual(item["message_count"], 2)
         self.assertEqual(item["last_message"]["sender_type"], "agent")
         self.assertEqual(item["last_message"]["content"], "Yes, we ship worldwide.")
+
+    def test_list_includes_usage_totals_and_avg_response_time(self):
+        session = self.create_session(
+            chatbot=self.own_chatbot, created_by=self.user,
+        )
+        self.create_message(
+            session,
+            sender_type=ChatMessageSenderType.USER,
+            content="Hi",
+        )
+        first = self.create_message(
+            session,
+            sender_type=ChatMessageSenderType.AGENT,
+            content="Hello",
+            response_time_ms=800,
+        )
+        second = self.create_message(
+            session,
+            sender_type=ChatMessageSenderType.AGENT,
+            content="Anything else?",
+            response_time_ms=1200,
+        )
+        self.create_usage(first, tokens=100, cost="0.00010000")
+        self.create_usage(second, tokens=150, cost="0.00020000")
+        empty = self.create_session(
+            chatbot=self.own_chatbot, created_by=self.user,
+        )
+
+        response = self.client.get(SESSION_LIST_URL)
+
+        items = {item["id"]: item for item in response.data["data"]}
+        item = items[str(session.pk)]
+        self.assertEqual(item["message_count"], 3)
+        self.assertEqual(item["total_tokens"], 250)
+        self.assertAlmostEqual(item["total_cost"], 0.0003)
+        self.assertEqual(item["avg_response_time_ms"], 1000)
+        self.assertEqual(items[str(empty.pk)]["total_tokens"], 0)
+        self.assertEqual(items[str(empty.pk)]["total_cost"], 0)
+        self.assertIsNone(items[str(empty.pk)]["avg_response_time_ms"])
 
 
 class ChatSessionDetailTests(ChatClientAPITestCase):
@@ -347,6 +403,33 @@ class ChatMessageTests(ChatClientAPITestCase):
         contents = [item["content"] for item in response.data["data"]]
         self.assertEqual(contents, ["Question", "Answer"])
         self.assertEqual(response.data["data"][1]["response_time_ms"], 750)
+
+    def test_message_list_includes_usage(self):
+        session = self.create_session(
+            chatbot=self.own_chatbot, created_by=self.user,
+        )
+        self.create_message(
+            session,
+            sender_type=ChatMessageSenderType.USER,
+            content="Question",
+        )
+        answer = self.create_message(
+            session,
+            sender_type=ChatMessageSenderType.AGENT,
+            content="Answer",
+            response_time_ms=750,
+        )
+        self.create_usage(answer, tokens=120, cost="0.00012345")
+
+        response = self.client.get(MESSAGE_LIST_URL, {"session": session.pk})
+
+        question, reply = response.data["data"]
+        self.assertIsNone(question["usage"])
+        self.assertEqual(reply["usage"]["total_tokens"], 120)
+        self.assertEqual(reply["usage"]["input_tokens"], 110)
+        self.assertEqual(reply["usage"]["output_tokens"], 10)
+        self.assertAlmostEqual(reply["usage"]["cost"], 0.00012345)
+        self.assertEqual(reply["usage"]["model"], "gemini-test")
 
     def test_message_list_hidden_for_other_users(self):
         session = self.create_session(

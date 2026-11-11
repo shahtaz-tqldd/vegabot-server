@@ -32,9 +32,9 @@ def _database_config_from_url(database_url, *, fallback_name, fallback_user, fal
 
 default_db = _database_config_from_url(
     env("DATABASE_URL", ""),
-    fallback_name=env("DB_NAME", "dison_db"),
-    fallback_user=env("DB_USER", "dison_db_owner"),
-    fallback_password=env("DB_PASSWORD", "dison_db_password"),
+    fallback_name=env("DB_NAME", "vegabot_db"),
+    fallback_user=env("DB_USER", "shahtaz"),
+    fallback_password=env("DB_PASSWORD", "nylo166"),
     fallback_host=env("DB_HOST", "postgres"),
     fallback_port=env_int("DB_PORT", 5432),
     fallback_ssl=env_bool("DB_SSL_REQUIRE", False),

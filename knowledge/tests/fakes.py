@@ -17,6 +17,13 @@ class FakeEmbeddingService:
         FakeEmbeddingService.calls.append(text)
         return [0.1, 0.2, 0.3]
 
+    def embed_documents(self, texts, *, on_progress=None):
+        texts = list(texts)
+        embeddings = [self.embed_document(text) for text in texts]
+        if on_progress and texts:
+            on_progress(len(texts), len(texts))
+        return embeddings
+
     def embed_query(self, text):
         return [0.1, 0.2, 0.3]
 
@@ -46,6 +53,10 @@ class FakeVectorService:
 
     def remove_catalog_item(self, *, space, item_id):
         self.removed_catalog_items.append((space, item_id))
+
+    def remove_catalog_items(self, *, space, item_ids):
+        for item_id in item_ids:
+            self.removed_catalog_items.append((space, item_id))
 
 
 class FakeScraper:

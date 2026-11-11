@@ -6,7 +6,7 @@ mode. The client protocol is in [api_module/chat.md](api_module/chat.md).
 | | `text` mode | `audio` mode |
 | --- | --- | --- |
 | Entry point | `agent.client.AgentClient` | `agent.voice.VoiceSession` |
-| Model | `GEMINI_CHAT_MODEL` / DisonConfig `text_llm_model` | `GEMINI_LIVE_CHAT_MODEL` / DisonConfig `live_llm_model` (+ `voice_name`) |
+| Model | `GEMINI_CHAT_MODEL` / VegabotConfig `text_llm_model` | `GEMINI_LIVE_CHAT_MODEL` / VegabotConfig `live_llm_model` (+ `voice_name`) |
 | ADK run | `run_async`, `StreamingMode.SSE`, one run per message | `run_live`, `StreamingMode.BIDI`, one run per voice period |
 | Reply format | text with inline `[K1]` citations | short spoken prose, no markup |
 | Recommendations | `show_recommendations(refs)` (2-3 items), cards after the text | same |
@@ -26,7 +26,7 @@ agent/
     instruction.py      prompt sections per knowledge space and mode
     global_instruction.py  identity + business policy
     profile.py          cached per-chatbot profile (policy, knowledge-space flags)
-    model.py            per-mode model, Vertex client scope, DisonConfig overrides
+    model.py            per-mode model, Vertex client scope, VegabotConfig overrides
     runtime.py          shared ADK app (APP_NAME), runner, session service
     stream.py           TurnStream: the agent.response.* event sequence
     citations.py        [K1] extraction + streaming filter
