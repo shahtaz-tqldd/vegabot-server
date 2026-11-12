@@ -13,7 +13,7 @@ images/config/{image}
 Image URLs are returned as `R2_PUBLIC_URL/{object_key}`, for example
 `https://assets.example.com/images/users/user-id.webp`. Set the remaining
 `R2_*` variables documented in `.env.example`. Images use unique object names
-and configurable `R2_IMAGE_CACHE_CONTROL` metadata, so the `images/*` path is
+and the `R2_IMAGE_CACHE_CONTROL` metadata from `app/constants.py`, so the `images/*` path is
 ready for long-lived Cloudflare caching.
 
 The public domain must only serve `images/*`. Block `files/*` at Cloudflare (or

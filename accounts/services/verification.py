@@ -1,12 +1,12 @@
 import secrets
 from datetime import timedelta
 
-from django.conf import settings
 from django.contrib.auth.hashers import check_password, make_password
 from django.db import transaction
 from django.template.loader import render_to_string
 from django.utils import timezone
 
+from app.constants import EMAIL_VERIFICATION_OTP_TTL_MINUTES
 from accounts.models import EmailVerificationOTP, User
 from accounts.tasks import send_email_verification_otp
 
@@ -19,7 +19,7 @@ def _deliver_verification_email(*, recipient_email, recipient_name, otp):
     context = {
         "recipient_name": recipient_name or recipient_email,
         "otp": otp,
-        "expires_in_minutes": settings.EMAIL_VERIFICATION_OTP_TTL_MINUTES,
+        "expires_in_minutes": EMAIL_VERIFICATION_OTP_TTL_MINUTES,
     }
     kwargs = {
         "recipient_email": recipient_email,
@@ -41,7 +41,7 @@ def issue_email_verification_otp(user):
         defaults={
             "code_hash": make_password(otp),
             "expires_at": timezone.now()
-            + timedelta(minutes=settings.EMAIL_VERIFICATION_OTP_TTL_MINUTES),
+            + timedelta(minutes=EMAIL_VERIFICATION_OTP_TTL_MINUTES),
         },
     )
     transaction.on_commit(

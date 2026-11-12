@@ -8,6 +8,13 @@ from google import genai
 from google.genai import _transformers as genai_transformers
 from google.genai import types
 
+from app.constants import (
+    GEMINI_EMBEDDING_BATCH_SIZE,
+    GEMINI_EMBEDDING_DIMENSIONS,
+    GEMINI_EMBEDDING_REQUEST_DELAY_SECONDS,
+    GEMINI_EMBEDDING_USE_VERTEX,
+)
+
 
 class GeminiEmbeddingService:
     """Gemini embeddings with single-request batching on every backend.
@@ -38,18 +45,18 @@ class GeminiEmbeddingService:
         self.project = project or settings.GOOGLE_CLOUD_PROJECT_ID
         self.location = location or settings.GOOGLE_CLOUD_LOCATION
         self.model = model or settings.GEMINI_EMBEDDING_MODEL
-        self.dimensions = dimensions or settings.GEMINI_EMBEDDING_DIMENSIONS
+        self.dimensions = dimensions or GEMINI_EMBEDDING_DIMENSIONS
         self.request_delay_seconds = (
-            settings.GEMINI_EMBEDDING_REQUEST_DELAY_SECONDS
+            GEMINI_EMBEDDING_REQUEST_DELAY_SECONDS
             if request_delay_seconds is None
             else request_delay_seconds
         )
         self.api_key = api_key or settings.GEMINI_API_KEY
         self.use_vertex = (
-            settings.GEMINI_EMBEDDING_USE_VERTEX if use_vertex is None else use_vertex
+            GEMINI_EMBEDDING_USE_VERTEX if use_vertex is None else use_vertex
         )
         self.batch_size = max(
-            int(batch_size or settings.GEMINI_EMBEDDING_BATCH_SIZE or 1), 1,
+            int(batch_size or GEMINI_EMBEDDING_BATCH_SIZE or 1), 1,
         )
         self._last_request_at = None
 
@@ -59,7 +66,6 @@ class GeminiEmbeddingService:
                     "GOOGLE_CLOUD_PROJECT_ID is required for Vertex AI.",
                 )
             # Credentials are picked up automatically from
-            # GOOGLE_APPLICATION_CREDENTIALS (ADC).
             self.client = genai.Client(
                 vertexai=True,
                 project=self.project,

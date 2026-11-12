@@ -5,6 +5,7 @@ from app.core.models import BaseModel
 from app.utils.validators import validate_timezone_name
 from chatbot.utils.choices import ChatbotStatusTypes, ChatbotToneTypes
 from chatbot.utils.validation import validate_other_settings
+from chatbot.utils.voices import SpeakingPace, VoiceGender
 
 
 DEFAULT_CHATBOT_WELCOME_MESSAGE_TEMPLATE = (
@@ -95,6 +96,50 @@ class Chatbot(BaseModel):
         help_text="IANA timezone, for example Asia/Dhaka.",
     )
 
+    # features: which knowledge sources the agent may use. A source is
+    # only used when it is enabled here AND has trained content.
+    knowledge_enabled = models.BooleanField(
+        default=True,
+        help_text="Answer from documents, web pages, and raw text.",
+    )
+    products_enabled = models.BooleanField(
+        default=True,
+        help_text="Search and recommend products from the product catalog.",
+    )
+    services_enabled = models.BooleanField(
+        default=True,
+        help_text="Search and recommend services from the service list.",
+    )
+    product_ordering_enabled = models.BooleanField(
+        default=False,
+        help_text=(
+            "Let the agent add products to a cart and take orders. "
+            "Requires products_enabled."
+        ),
+    )
+
+    # voice (audio mode). A selected custom voice wins over voice_name;
+    # with neither, the platform default voice is used.
+    voice_name = models.CharField(
+        max_length=40,
+        blank=True,
+        default="",
+        help_text="Prebuilt Live voice, for example Kore or Puck.",
+    )
+    custom_voice = models.ForeignKey(
+        "chatbot.ChatbotVoice",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+        help_text="The selected custom (replicated) voice, if any.",
+    )
+    speaking_pace = models.CharField(
+        max_length=10,
+        choices=SpeakingPace.choices,
+        default=SpeakingPace.NORMAL,
+    )
+
     # other settings
     other_settings = models.JSONField(
         default=dict,
@@ -126,6 +171,11 @@ class Chatbot(BaseModel):
 
     def __str__(self):
         return self.chatbot_name
+
+    @property
+    def ordering_enabled(self):
+        """Cart and order taking is a products add-on."""
+        return self.products_enabled and self.product_ordering_enabled
 
     def generate_unique_slug(self):
         base_slug = (
@@ -202,3 +252,52 @@ class Chatbot(BaseModel):
                 ChatbotStatusTypes.DISABLED_BY_ADMIN,
             }
         )
+
+
+class ChatbotVoice(BaseModel):
+    """A custom voice replicated from its owner's recordings.
+
+    Both recordings are normalized to 24 kHz mono 16-bit WAV and stored
+    privately in R2. Voice sessions send the sample (clipped to the Live
+    limit) and the consent recording to Gemini Live, which builds the
+    voice per session.
+    """
+
+    chatbot = models.ForeignKey(
+        Chatbot,
+        on_delete=models.CASCADE,
+        related_name="custom_voices",
+    )
+    name = models.CharField(max_length=60)
+    gender = models.CharField(max_length=10, choices=VoiceGender.choices)
+    sample_audio_key = models.CharField(max_length=1024)
+    sample_duration_seconds = models.FloatField()
+    consent_audio_key = models.CharField(max_length=1024)
+    consent_duration_seconds = models.FloatField()
+    consent_statement = models.TextField(
+        help_text="The consent statement the voice owner read aloud.",
+    )
+
+    class Meta:
+        ordering = ["-created_at"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["chatbot", "name"],
+                name="unique_custom_voice_name_per_chatbot",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.name} ({self.chatbot})"
+
+
+class VoicePreview(models.Model):
+    """A cached listening sample of one prebuilt voice (public R2 file)."""
+
+    voice_name = models.CharField(max_length=40, unique=True)
+    audio_url = models.URLField(max_length=2048)
+    audio_key = models.CharField(max_length=1024)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return self.voice_name

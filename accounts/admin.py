@@ -26,7 +26,7 @@ class UserAdmin(BaseUserAdmin):
         "is_superuser",
         "is_email_verified",
     )
-    search_fields = ("email", "name", "profile__phone", "firebase_uid")
+    search_fields = ("email", "name", "profile__phone")
     readonly_fields = (
         "id",
         "created_at",
@@ -44,9 +44,6 @@ class UserAdmin(BaseUserAdmin):
             {
                 "fields": (
                     "provider",
-                    "firebase_uid",
-                    "firebase_id_token",
-                    "google_access_token",
                 )
             },
         ),

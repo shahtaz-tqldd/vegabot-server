@@ -1,12 +1,12 @@
 from pathlib import Path
 
-from django.conf import settings
 from django.core.exceptions import ImproperlyConfigured
 from rest_framework import status
 from rest_framework.generics import GenericAPIView
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.serializers import ValidationError
 
+from app.constants import R2_FILES_PREFIX, R2_IMAGES_PREFIX
 from app.services.r2 import R2Storage, extract_key, upload_file
 from app.utils.response import APIResponse
 from base.api.v1.client.serializers import (
@@ -31,8 +31,8 @@ def get_config():
 
 def storage_key_prefixes():
     prefixes = [
-        (settings.R2_FILES_PREFIX or "").strip("/"),
-        (settings.R2_IMAGES_PREFIX or "").strip("/"),
+        (R2_FILES_PREFIX or "").strip("/"),
+        (R2_IMAGES_PREFIX or "").strip("/"),
     ]
     return [prefix for prefix in prefixes if prefix]
 

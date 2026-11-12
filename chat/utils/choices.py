@@ -49,3 +49,16 @@ class EscalationReason(models.TextChoices):
 class EscalationStatus(models.TextChoices):
     OPEN = "open", "Open"
     RESOLVED = "resolved", "Resolved"
+
+
+class CartItemStatus(models.TextChoices):
+    """Lifecycle of one product line the agent added to a session's cart."""
+
+    IN_CART = "in_cart", "In cart"
+    ORDERED = "ordered", "Ordered"
+    REMOVED = "removed", "Removed"
+
+
+class OrderStatus(models.TextChoices):
+    CONFIRMED = "confirmed", "Confirmed"
+    CANCELLED = "cancelled", "Cancelled"

@@ -1,12 +1,11 @@
 from django.urls import include, path
 
-from accounts.api.v1.client import views
+from accounts.api.v1 import views
 
 auth_apis = [
     path("register/", views.CreateNewUserView.as_view(), name="register"),
     path("verify-otp/", views.VerifyOTPView.as_view(), name="verify-otp"),
     path("login/", views.LoginView.as_view(), name="login"),
-    path("google/", views.GoogleLoginView.as_view(), name="google-login"),
     path("refresh/", views.RefreshTokenView.as_view(), name="refresh-token"),
     path(
         "request-reset-password/",

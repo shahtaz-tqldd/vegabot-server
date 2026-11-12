@@ -15,6 +15,8 @@ Emission is best-effort: a broken socket never fails the turn.
 import inspect
 from uuid import uuid4
 
+from django.utils import timezone
+
 from agent.helpers.citations import CitationStreamFilter
 from app.utils.logger import logger
 from base.socket.events import (
@@ -46,6 +48,14 @@ class TurnStream:
         self.reply_to = str(reply_to) if reply_to else None
         self.sequence = 0
         self._filter = CitationStreamFilter() if strip_citations else None
+        # When the user first received output (text or audio) for this
+        # turn; the end of the agent's response delay.
+        self.first_output_at = None
+
+    def mark_output(self):
+        """Record the turn's first output; later calls are no-ops."""
+        if self.first_output_at is None:
+            self.first_output_at = timezone.now()
 
     async def _send(self, event_type, **data):
         await emit_event(
@@ -66,6 +76,7 @@ class TurnStream:
     async def _send_delta(self, chunk):
         if not chunk:
             return
+        self.mark_output()
         self.sequence += 1
         await self._send(AGENT_RESPONSE_DELTA, delta=chunk, sequence=self.sequence)
 

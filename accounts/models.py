@@ -75,19 +75,6 @@ class User(AbstractBaseUser, PermissionsMixin):
         default=AccountProvider.PASSWORD,
         verbose_name=_("Auth provider"),
     )
-    firebase_uid = models.CharField(
-        max_length=128,
-        unique=True,
-        blank=True,
-        null=True,
-        verbose_name=_("Firebase UID"),
-    )
-    firebase_id_token = models.TextField(
-        blank=True, verbose_name=_("Firebase ID token")
-    )
-    google_access_token = models.TextField(
-        blank=True, verbose_name=_("Google access token")
-    )
     is_active = models.BooleanField(default=True, verbose_name=_("Active"))
     is_staff = models.BooleanField(default=False, verbose_name=_("Staff status"))
     last_active = models.DateTimeField(

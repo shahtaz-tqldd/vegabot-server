@@ -3,9 +3,11 @@ from django.db.models import Count
 from django.utils.html import format_html
 
 from chat.models import (
+    ChatCartItem,
     ChatEscalation,
     ChatMessage,
     ChatMessageAttachment,
+    ChatOrder,
     ChatSession,
 )
 
@@ -161,3 +163,49 @@ class ChatEscalationAdmin(admin.ModelAdmin):
     @admin.display(description="Chatbot")
     def chatbot(self, obj):
         return obj.chat_session.chatbot.chatbot_name
+
+
+@admin.register(ChatCartItem)
+class ChatCartItemAdmin(admin.ModelAdmin):
+    list_display = (
+        "product_name",
+        "quantity",
+        "unit_price",
+        "currency",
+        "status",
+        "chat_session",
+        "order",
+        "created_at",
+    )
+    list_filter = ("status", "created_at")
+    search_fields = ("product_name", "sku", "chat_session__id")
+    list_select_related = ("chat_session", "order")
+    readonly_fields = ("created_at", "updated_at")
+    raw_id_fields = ("chat_session", "product", "order")
+
+
+class ChatOrderItemInline(admin.TabularInline):
+    model = ChatCartItem
+    fk_name = "order"
+    extra = 0
+    can_delete = False
+    fields = ("product_name", "sku", "quantity", "unit_price", "currency")
+    readonly_fields = fields
+
+
+@admin.register(ChatOrder)
+class ChatOrderAdmin(admin.ModelAdmin):
+    list_display = (
+        "order_number",
+        "status",
+        "item_count",
+        "total_amount",
+        "currency",
+        "chat_session",
+        "created_at",
+    )
+    list_filter = ("status", "created_at")
+    search_fields = ("order_number", "chat_session__id")
+    readonly_fields = ("created_at", "updated_at")
+    raw_id_fields = ("chat_session",)
+    inlines = [ChatOrderItemInline]

@@ -9,6 +9,14 @@ from django.conf import settings
 from django.core.exceptions import ImproperlyConfigured
 from django.db import transaction
 
+from app.constants import (
+    R2_FILES_PREFIX,
+    R2_IMAGES_PREFIX,
+    R2_IMAGE_CACHE_CONTROL,
+    R2_PRESIGNED_URL_TTL,
+    R2_REGION_NAME,
+)
+
 
 MAX_WIDTH = 2400
 MAX_HEIGHT = 1600
@@ -42,7 +50,7 @@ class R2Storage:
         return boto3.client(
             "s3",
             endpoint_url=endpoint_url,
-            region_name=settings.R2_REGION_NAME,
+            region_name=R2_REGION_NAME,
             aws_access_key_id=settings.R2_ACCESS_KEY_ID,
             aws_secret_access_key=settings.R2_SECRET_ACCESS_KEY,
             config=Config(signature_version="s3v4"),
@@ -81,7 +89,7 @@ class R2Storage:
         return self.client.generate_presigned_url(
             "get_object",
             Params=params,
-            ExpiresIn=settings.R2_PRESIGNED_URL_TTL,
+            ExpiresIn=R2_PRESIGNED_URL_TTL,
         )
 
     def public_url(self, key):
@@ -107,14 +115,14 @@ def upload_image(file_obj, folder=None, public_id=None, *, storage=None):
     if suffix and not object_name.lower().endswith(suffix):
         object_name = f"{object_name}{suffix}"
 
-    upload_folder = (folder or settings.R2_IMAGES_PREFIX).strip("/")
+    upload_folder = (folder or R2_IMAGES_PREFIX).strip("/")
     key = f"{upload_folder}/{object_name}" if upload_folder else object_name
     storage = storage or R2Storage()
     storage.upload(
         prepared_file,
         key=key,
         content_type=mimetypes.guess_type(key)[0] or "application/octet-stream",
-        cache_control=settings.R2_IMAGE_CACHE_CONTROL or None,
+        cache_control=R2_IMAGE_CACHE_CONTROL or None,
     )
     return {"url": storage.public_url(key), "key": key, "public_id": key}
 
@@ -128,7 +136,7 @@ def upload_file(file_obj, folder=None, public_id=None, *, storage=None):
     if suffix and not object_name.lower().endswith(suffix):
         object_name = f"{object_name}{suffix}"
 
-    upload_folder = (folder or settings.R2_FILES_PREFIX).strip("/")
+    upload_folder = (folder or R2_FILES_PREFIX).strip("/")
     key = f"{upload_folder}/{object_name}" if upload_folder else object_name
     content_type = (
         getattr(file_obj, "content_type", None)

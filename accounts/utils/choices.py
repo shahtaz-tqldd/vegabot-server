@@ -10,4 +10,3 @@ class AccountStatus(models.TextChoices):
 
 class AccountProvider(models.TextChoices):
     PASSWORD = "password", _("Password")
-    GOOGLE = "google", _("Google")

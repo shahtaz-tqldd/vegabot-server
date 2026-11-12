@@ -1,10 +1,10 @@
 from uuid import uuid4
 
-from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.db import transaction
 from rest_framework import serializers
 
+from app.constants import R2_IMAGES_PREFIX
 from app.services.r2 import delete_image, schedule_delete_image, upload_image
 from app.utils.storage_fields import R2ImageField
 from chatbot.models import Chatbot
@@ -50,6 +50,11 @@ class ChatbotBaseSerializer(serializers.ModelSerializer):
             "never_answer",
             "language",
             "timezone",
+            "knowledge_enabled",
+            "products_enabled",
+            "services_enabled",
+            "product_ordering_enabled",
+            "speaking_pace",
             "other_settings",
             "logo",
             "clear_logo",
@@ -103,16 +108,57 @@ class ChatbotBaseSerializer(serializers.ModelSerializer):
                     }
                 )
 
+        self._validate_features(attrs)
+
         if "status" in attrs and attrs["status"] not in self.allowed_statuses:
             raise serializers.ValidationError(
                 {"status": "This status cannot be set from the client API."}
             )
         return attrs
 
+    feature_fields = (
+        "knowledge_enabled",
+        "products_enabled",
+        "services_enabled",
+    )
+
+    def _feature_value(self, attrs, field):
+        """The value after this write: the payload, else the instance,
+        else the model default."""
+        if field in attrs:
+            return attrs[field]
+        if self.instance is not None:
+            return getattr(self.instance, field)
+        return Chatbot._meta.get_field(field).default
+
+    def _validate_features(self, attrs):
+        if not any(
+            self._feature_value(attrs, field) for field in self.feature_fields
+        ):
+            raise serializers.ValidationError(
+                {
+                    "knowledge_enabled": (
+                        "Enable at least one of knowledge, products, or "
+                        "services."
+                    )
+                }
+            )
+        if self._feature_value(
+            attrs, "product_ordering_enabled",
+        ) and not self._feature_value(attrs, "products_enabled"):
+            raise serializers.ValidationError(
+                {
+                    "product_ordering_enabled": (
+                        "Cart and order taking requires products to be "
+                        "enabled."
+                    )
+                }
+            )
+
     def _upload_logo(self, logo, *, suffix=""):
         return upload_image(
             logo,
-            folder=f"{settings.R2_IMAGES_PREFIX}/chatbots",
+            folder=f"{R2_IMAGES_PREFIX}/chatbots",
             public_id=f"chatbot-{suffix}{uuid4().hex}",
         )
 
@@ -182,6 +228,10 @@ class ChatbotListSerializer(ChatbotBaseSerializer):
             "tone",
             "logo",
             "status",
+            "knowledge_enabled",
+            "products_enabled",
+            "services_enabled",
+            "product_ordering_enabled",
             "is_admin_created",
             "trained_knowledge",
             "created_by",
@@ -216,12 +266,20 @@ class ChatbotDetailSerializer(ChatbotBaseSerializer):
     """Serialize the complete details of a chatbot."""
 
     created_by = ChatbotOwnerSerializer(read_only=True)
+    voice = serializers.SerializerMethodField()
 
     class Meta(ChatbotBaseSerializer.Meta):
         fields = (
             *ChatbotBaseSerializer.Meta.fields,
+            "voice",
             "created_by",
         )
+
+    def get_voice(self, obj):
+        """The voice the chatbot currently speaks with (audio mode)."""
+        from chatbot.services.voices import selected_voice
+
+        return selected_voice(obj)
 
 
 class ChatbotUpdateSerializer(ChatbotBaseSerializer):
