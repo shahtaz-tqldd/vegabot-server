@@ -18,6 +18,16 @@ from django.db import IntegrityError, transaction
 from google import genai
 from google.genai import types
 
+from app.constants import (
+    CUSTOM_VOICE_LIVE_SAMPLE_SECONDS,
+    CUSTOM_VOICE_MAX_CONSENT_SECONDS,
+    CUSTOM_VOICE_MAX_SAMPLE_SECONDS,
+    CUSTOM_VOICE_MAX_UPLOAD_MB,
+    CUSTOM_VOICE_MIN_SAMPLE_SECONDS,
+    GEMINI_LIVE_CHAT_VOICE,
+    MAX_CUSTOM_VOICES_PER_CHATBOT,
+    R2_FILES_PREFIX,
+)
 from app.services.r2 import R2Storage
 from chatbot.models import ChatbotVoice, VoicePreview
 from chatbot.services.voice_audio import (
@@ -46,7 +56,7 @@ class VoiceError(ValueError):
 
 # ----------------------------------------------------------------- storage
 def _voice_key(chatbot, kind):
-    prefix = settings.R2_FILES_PREFIX.strip("/")
+    prefix = R2_FILES_PREFIX.strip("/")
     return f"{prefix}/voices/{chatbot.pk}/{uuid4().hex}-{kind}.wav"
 
 
@@ -85,10 +95,10 @@ def sample_url(voice, storage=None):
 
 # ----------------------------------------------------------- custom voices
 def _normalized(upload, *, label, min_seconds, max_seconds):
-    if upload.size > settings.CUSTOM_VOICE_MAX_UPLOAD_MB * BYTES_PER_MEGABYTE:
+    if upload.size > CUSTOM_VOICE_MAX_UPLOAD_MB * BYTES_PER_MEGABYTE:
         raise VoiceError(
             f"The {label} must be under "
-            f"{settings.CUSTOM_VOICE_MAX_UPLOAD_MB:g} MB."
+            f"{CUSTOM_VOICE_MAX_UPLOAD_MB:g} MB."
         )
     try:
         wav_bytes, duration = normalize_wav(upload)
@@ -106,22 +116,22 @@ def create_custom_voice(
     *, chatbot, name, gender, sample_audio, consent_audio, user, storage=None,
 ):
     """Store a custom voice from its sample and consent recordings."""
-    if chatbot.custom_voices.count() >= settings.MAX_CUSTOM_VOICES_PER_CHATBOT:
+    if chatbot.custom_voices.count() >= MAX_CUSTOM_VOICES_PER_CHATBOT:
         raise VoiceError(
             f"A chatbot can have at most "
-            f"{settings.MAX_CUSTOM_VOICES_PER_CHATBOT} custom voices."
+            f"{MAX_CUSTOM_VOICES_PER_CHATBOT} custom voices."
         )
     sample_bytes, sample_seconds = _normalized(
         sample_audio,
         label="voice sample",
-        min_seconds=settings.CUSTOM_VOICE_MIN_SAMPLE_SECONDS,
-        max_seconds=settings.CUSTOM_VOICE_MAX_SAMPLE_SECONDS,
+        min_seconds=CUSTOM_VOICE_MIN_SAMPLE_SECONDS,
+        max_seconds=CUSTOM_VOICE_MAX_SAMPLE_SECONDS,
     )
     consent_bytes, consent_seconds = _normalized(
         consent_audio,
         label="consent recording",
         min_seconds=2,
-        max_seconds=settings.CUSTOM_VOICE_MAX_CONSENT_SECONDS,
+        max_seconds=CUSTOM_VOICE_MAX_CONSENT_SECONDS,
     )
 
     storage = storage or R2Storage()
@@ -208,7 +218,7 @@ def custom_voice_payload(voice, *, include_sample=False, storage=None):
 
 
 def default_voice_name():
-    return prebuilt_voice(settings.GEMINI_LIVE_CHAT_VOICE) or prebuilt_voice("Puck")
+    return prebuilt_voice(GEMINI_LIVE_CHAT_VOICE) or prebuilt_voice("Puck")
 
 
 def selected_voice(chatbot):
@@ -218,7 +228,7 @@ def selected_voice(chatbot):
     entry = prebuilt_voice(chatbot.voice_name)
     if entry is not None:
         return prebuilt_voice_payload(entry) | {"is_default": False}
-    configured = (chatbot.voice_name or settings.GEMINI_LIVE_CHAT_VOICE).strip()
+    configured = (chatbot.voice_name or GEMINI_LIVE_CHAT_VOICE).strip()
     entry = prebuilt_voice(configured)
     if entry is not None:
         return prebuilt_voice_payload(entry) | {"is_default": True}
@@ -258,7 +268,7 @@ def live_speech_config(chatbot, *, default_voice=None):
         try:
             sample = clip_wav(
                 voice_audio(voice.sample_audio_key),
-                settings.CUSTOM_VOICE_LIVE_SAMPLE_SECONDS,
+                CUSTOM_VOICE_LIVE_SAMPLE_SECONDS,
             )
             return types.SpeechConfig(
                 voice_config=types.VoiceConfig(
@@ -274,7 +284,7 @@ def live_speech_config(chatbot, *, default_voice=None):
                 "Custom voice %s unavailable; using the prebuilt voice", voice.pk,
             )
     return prebuilt_speech_config(
-        chatbot.voice_name or default_voice or settings.GEMINI_LIVE_CHAT_VOICE,
+        chatbot.voice_name or default_voice or GEMINI_LIVE_CHAT_VOICE,
     )
 
 
@@ -350,7 +360,7 @@ def voice_preview_url(voice_name):
         raise RuntimeError("The voice preview came back empty.")
 
     storage = R2Storage()
-    prefix = settings.R2_FILES_PREFIX.strip("/")
+    prefix = R2_FILES_PREFIX.strip("/")
     key = f"{prefix}/voice-previews/{entry['name'].lower()}-{uuid4().hex[:8]}.wav"
     _upload_wav(storage, pcm_to_wav(pcm), key)
     preview, created = VoicePreview.objects.get_or_create(

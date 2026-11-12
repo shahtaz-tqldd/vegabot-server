@@ -2,7 +2,6 @@
 
 import logging
 
-from django.conf import settings
 from django.db.models import Q
 from django.shortcuts import get_object_or_404
 from rest_framework import status
@@ -10,6 +9,14 @@ from rest_framework.generics import GenericAPIView
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.permissions import IsAuthenticated
 
+from app.constants import (
+    CUSTOM_VOICE_LIVE_SAMPLE_SECONDS,
+    CUSTOM_VOICE_MAX_CONSENT_SECONDS,
+    CUSTOM_VOICE_MAX_SAMPLE_SECONDS,
+    CUSTOM_VOICE_MAX_UPLOAD_MB,
+    CUSTOM_VOICE_MIN_SAMPLE_SECONDS,
+    MAX_CUSTOM_VOICES_PER_CHATBOT,
+)
 from app.services.r2 import R2Storage
 from app.utils.response import APIResponse
 from chatbot.api.v1.client.voice_serializers import (
@@ -76,12 +83,12 @@ class VoiceOptionsView(GenericAPIView):
                     "consent_statement": CONSENT_STATEMENT,
                     "sample_script": SAMPLE_SCRIPT,
                     "format": "WAV (PCM); converted to 24 kHz mono 16-bit",
-                    "sample_min_seconds": settings.CUSTOM_VOICE_MIN_SAMPLE_SECONDS,
-                    "sample_max_seconds": settings.CUSTOM_VOICE_MAX_SAMPLE_SECONDS,
-                    "sample_used_seconds": settings.CUSTOM_VOICE_LIVE_SAMPLE_SECONDS,
-                    "consent_max_seconds": settings.CUSTOM_VOICE_MAX_CONSENT_SECONDS,
-                    "max_upload_mb": settings.CUSTOM_VOICE_MAX_UPLOAD_MB,
-                    "max_per_chatbot": settings.MAX_CUSTOM_VOICES_PER_CHATBOT,
+                    "sample_min_seconds": CUSTOM_VOICE_MIN_SAMPLE_SECONDS,
+                    "sample_max_seconds": CUSTOM_VOICE_MAX_SAMPLE_SECONDS,
+                    "sample_used_seconds": CUSTOM_VOICE_LIVE_SAMPLE_SECONDS,
+                    "consent_max_seconds": CUSTOM_VOICE_MAX_CONSENT_SECONDS,
+                    "max_upload_mb": CUSTOM_VOICE_MAX_UPLOAD_MB,
+                    "max_per_chatbot": MAX_CUSTOM_VOICES_PER_CHATBOT,
                 },
             },
             message="Voice options fetched successfully.",

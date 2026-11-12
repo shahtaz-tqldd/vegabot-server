@@ -1,9 +1,9 @@
 from urllib.parse import parse_qs, urlparse
 
-from app.settings.env import env, env_bool, env_int
+from app.settings.env import env, env_int
 
 
-def _database_config_from_url(database_url, *, fallback_name, fallback_user, fallback_password, fallback_host, fallback_port, fallback_ssl):
+def _database_config_from_url(database_url, *, fallback_name, fallback_user, fallback_password, fallback_host, fallback_port):
     if not database_url:
         return {
             "ENGINE": "django.db.backends.postgresql",
@@ -12,7 +12,7 @@ def _database_config_from_url(database_url, *, fallback_name, fallback_user, fal
             "PASSWORD": fallback_password,
             "HOST": fallback_host,
             "PORT": fallback_port,
-            "OPTIONS": {"sslmode": "require"} if fallback_ssl else {},
+            "OPTIONS": {},
         }
 
     parsed = urlparse(database_url)
@@ -26,7 +26,7 @@ def _database_config_from_url(database_url, *, fallback_name, fallback_user, fal
         "PASSWORD": parsed.password or fallback_password,
         "HOST": parsed.hostname or fallback_host,
         "PORT": parsed.port or fallback_port,
-        "OPTIONS": {"sslmode": sslmode or "require"} if sslmode or fallback_ssl else {},
+        "OPTIONS": {"sslmode": sslmode or "require"} if sslmode else {},
     }
 
 
@@ -36,8 +36,7 @@ default_db = _database_config_from_url(
     fallback_user=env("DB_USER", "shahtaz"),
     fallback_password=env("DB_PASSWORD", "nylo166"),
     fallback_host=env("DB_HOST", "postgres"),
-    fallback_port=env_int("DB_PORT", 5432),
-    fallback_ssl=env_bool("DB_SSL_REQUIRE", False),
+    fallback_port=env_int("DB_PORT", 5432)
 )
 
 DATABASES = {

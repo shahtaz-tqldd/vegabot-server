@@ -1,6 +1,5 @@
 from uuid import uuid4
 
-from django.conf import settings
 from django.db import transaction
 from django.db.models import (
     Avg,
@@ -21,6 +20,7 @@ from rest_framework.generics import GenericAPIView
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.permissions import IsAuthenticated
 
+from app.constants import R2_FILES_PREFIX
 from analytics.models import AIUsage
 from app.services.r2 import upload_file
 from app.utils.pagination import CustomPagination
@@ -447,7 +447,7 @@ class ChatMessageCreateView(GenericAPIView):
             for file_obj, attachment_type, mime_type in classified:
                 upload = upload_file(
                     file_obj,
-                    folder=f"{settings.R2_FILES_PREFIX}/chat-attachments",
+                    folder=f"{R2_FILES_PREFIX}/chat-attachments",
                     public_id=f"chat-attachment-{message.pk}-{uuid4().hex}",
                 )
                 file_obj.seek(0)

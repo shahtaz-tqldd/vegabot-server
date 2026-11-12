@@ -147,10 +147,7 @@ class VertexClientLifetimeTests(SimpleTestCase):
 
 
 class LiveModelVoiceTests(SimpleTestCase):
-    @override_settings(
-        GEMINI_LIVE_CHAT_MODEL="gemini-3.8-live",
-        GEMINI_LIVE_CHAT_VOICE="Puck",
-    )
+    @override_settings(GEMINI_LIVE_CHAT_MODEL="gemini-3.8-live")
     def test_defaults_from_settings(self):
         model = live_model()
         self.assertEqual(model.model, "gemini-3.8-live")
@@ -159,10 +156,7 @@ class LiveModelVoiceTests(SimpleTestCase):
             "Puck",
         )
 
-    @override_settings(
-        GEMINI_LIVE_CHAT_MODEL="gemini-3.8-live",
-        GEMINI_LIVE_CHAT_VOICE="Puck",
-    )
+    @override_settings(GEMINI_LIVE_CHAT_MODEL="gemini-3.8-live")
     def test_model_config_overrides_voice_and_model(self):
         model = live_model(model_config={
             "model_name": "custom-live-model",
@@ -174,7 +168,7 @@ class LiveModelVoiceTests(SimpleTestCase):
             "Aoede",
         )
 
-    @override_settings(GEMINI_LIVE_CHAT_VOICE="")
+    @patch("agent.helpers.model.GEMINI_LIVE_CHAT_VOICE", "")
     def test_empty_voice_keeps_api_default(self):
         self.assertIsNone(build_speech_config(None))
         self.assertIsNone(build_speech_config(""))

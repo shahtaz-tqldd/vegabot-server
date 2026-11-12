@@ -5,6 +5,7 @@ from django.conf import settings
 from google.adk.models import Gemini
 from google.genai import Client, types
 
+from app.constants import GEMINI_CHAT_MAX_OUTPUT_TOKENS, GEMINI_LIVE_CHAT_VOICE
 from chat.utils.choices import ChatMode
 
 
@@ -144,7 +145,7 @@ def vertex_location_for(mode):
 
 def build_speech_config(voice_name=None):
     """Voice selection for the live agent; None keeps the API default."""
-    voice = (voice_name or settings.GEMINI_LIVE_CHAT_VOICE or "").strip()
+    voice = (voice_name or GEMINI_LIVE_CHAT_VOICE or "").strip()
     if not voice:
         return None
     return types.SpeechConfig(
@@ -162,6 +163,6 @@ def generation_config(max_output_tokens=None):
         max_output_tokens=(
             max_output_tokens
             if max_output_tokens is not None
-            else settings.GEMINI_CHAT_MAX_OUTPUT_TOKENS
+            else GEMINI_CHAT_MAX_OUTPUT_TOKENS
         ),
     )

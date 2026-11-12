@@ -1,0 +1,52 @@
+"""Fixed application values.
+
+These used to be read from ``.env``. They do not change between
+environments, so they live here. Change them in code.
+"""
+
+# EMAIL
+EMAIL_VERIFICATION_OTP_TTL_MINUTES = 10
+PASSWORD_RESET_PATH = "/reset-password"
+
+# GEMINI
+GEMINI_CHAT_MAX_OUTPUT_TOKENS = 1024
+# Default prebuilt voice for the Live (audio) model.
+GEMINI_LIVE_CHAT_VOICE = "Puck"
+
+# GEMINI EMBEDDINGS
+GEMINI_EMBEDDING_DIMENSIONS = 1536
+GEMINI_EMBEDDING_REQUEST_DELAY_SECONDS = 5.0
+# Texts per embedding request where the backend supports batching.
+GEMINI_EMBEDDING_BATCH_SIZE = 100
+# Vertex AI (ADC) when True; False uses the Gemini Developer API key
+# (GEMINI_API_KEY), whose batchEmbedContents batches gemini-embedding-2
+# in one request.
+GEMINI_EMBEDDING_USE_VERTEX = True
+
+# CUSTOM VOICES (replicated voices for the Live model)
+# Live uses a 10-20 s sample; longer recordings are stored whole and
+# clipped when a voice session starts.
+CUSTOM_VOICE_MIN_SAMPLE_SECONDS = 10.0
+CUSTOM_VOICE_MAX_SAMPLE_SECONDS = 60.0
+CUSTOM_VOICE_LIVE_SAMPLE_SECONDS = 20.0
+CUSTOM_VOICE_MAX_CONSENT_SECONDS = 30.0
+CUSTOM_VOICE_MAX_UPLOAD_MB = 15.0
+MAX_CUSTOM_VOICES_PER_CHATBOT = 5
+
+# CLOUDFLARE R2 STORAGE
+R2_REGION_NAME = "auto"
+R2_FILES_PREFIX = "files"
+R2_IMAGES_PREFIX = "images"
+R2_IMAGE_CACHE_CONTROL = "public, max-age=31536000, immutable"
+R2_PRESIGNED_URL_TTL = 900
+
+# KNOWLEDGE SOURCE LIMITS
+KNOWLEDGE_MAX_FILE_SIZE_MB = 10
+KNOWLEDGE_MAX_PDF_PAGES = 100
+KNOWLEDGE_MAX_DOCX_PAGES = 100
+KNOWLEDGE_DOCX_WORDS_PER_PAGE = 500
+KNOWLEDGE_MAX_SPREADSHEET_ROWS = 2500
+KNOWLEDGE_MAX_CSV_ROWS = 2500
+KNOWLEDGE_MAX_STRUCTURED_ITEMS = 2500
+KNOWLEDGE_CHUNK_SIZE = 400
+KNOWLEDGE_CHUNK_OVERLAP = 50

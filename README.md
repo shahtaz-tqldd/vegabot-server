@@ -25,7 +25,7 @@ This repository is the backend: a Django service that exposes the REST API, the 
 | **Products** | Structured CSV/XLSX template, or one at a time | Name, SKU, category, description, price, currency, product URL, image. |
 | **Services** | Structured template, or added manually | Name, service type, description, cost, currency. |
 
-Training runs asynchronously in Celery. Each run writes a training log, and each item records its own status and any error, so a partially failed import can be inspected and retried. File size, page, row, and chunk limits are configurable (`KNOWLEDGE_*`).
+Training runs asynchronously in Celery. Each run writes a training log, and each item records its own status and any error, so a partially failed import can be inspected and retried. File size, page, row, and chunk limits are set by the `KNOWLEDGE_*` constants in [`app/constants.py`](app/constants.py).
 
 Each source is indexed in its own vector *space* (`document`, `product`, `service`), with a dedicated HNSW index for each.
 
@@ -134,7 +134,7 @@ Pinned dependencies are listed in [`requirements.txt`](requirements.txt).
    cp .env.example .env
    ```
 
-2. Put the Google service-account key at `secrets/service-account.json`. It is mounted in the container at the path set by `GOOGLE_APPLICATION_CREDENTIALS`.
+2. Put the Google service-account key at `secrets/service-account.json`. It is mounted in the container at `/app/secrets/service-account.json`, which `GOOGLE_APPLICATION_CREDENTIALS` points to.
 
 3. Start the stack:
 
@@ -171,22 +171,34 @@ $DC logs -f wsgi asgi celery-worker celery-beat
 
 ## Configuration
 
-All configuration is read from `.env`. [`.env.example`](.env.example) lists every supported variable.
+Environment-specific configuration is read from `.env`. [`.env.example`](.env.example) lists the variables you normally set; the rest have defaults in [`app/settings/variables.py`](app/settings/variables.py).
 
 | Group | Variables | Purpose |
 | --- | --- | --- |
-| Core | `APP_ENV`, `APP_SECRET`, `DEBUG`, `ALLOWED_HOSTS`, `CSRF_TRUSTED_ORIGINS`, `CORS_ALLOWED_ORIGINS`, `TIME_ZONE` | Django runtime. `APP_ENV` (`dev`/`prod`) also selects the Compose file. |
+| Core | `APP_ENV`, `APP_SECRET`, `DEBUG`, `ALLOWED_HOSTS`, `CSRF_TRUSTED_ORIGINS`, `CORS_ALLOWED_ORIGINS`, `SECURE_PROXY_SSL_HEADER_ENABLED`, `TIME_ZONE` | Django runtime. `APP_ENV` (`dev`/`prod`) also selects the Compose file. Celery uses `TIME_ZONE` too. |
 | Database | `DB_*`, `ADK_DB_URL` | PostgreSQL connection, plus the separate database that stores ADK sessions. |
 | Redis | `CELERY_BROKER_URL`, `CELERY_RESULT_BACKEND`, `CACHE_URL` | Celery, cache, and the Channels layer. |
-| Google Cloud | `GOOGLE_GENAI_USE_VERTEXAI`, `GOOGLE_CLOUD_PROJECT_ID`, `GOOGLE_CLOUD_LOCATION`, `GOOGLE_CLOUD_LIVE_CHAT_LOCATION`, `GOOGLE_APPLICATION_CREDENTIALS` | Vertex AI project, regions (the Live model can use a different region), and credentials. |
-| Gemini | `GEMINI_CHAT_MODEL`, `GEMINI_CHAT_MAX_OUTPUT_TOKENS`, `GEMINI_LIVE_CHAT_MODEL`, `GEMINI_LIVE_CHAT_VOICE` | Text and voice models, and the default voice. |
-| Embeddings | `GEMINI_EMBEDDING_MODEL`, `GEMINI_EMBEDDING_DIMENSIONS`, `GEMINI_EMBEDDING_BATCH_SIZE`, `GEMINI_EMBEDDING_USE_VERTEX`, `GEMINI_API_KEY` | Embedding model and vector size. Calls go through Vertex AI or, when Vertex is disabled, the Gemini Developer API. |
-| Cost tracking | `GEMINI_*_COST_PER_MILLION` | Token rates used to record AI cost for text and Live models. |
-| Training | `KNOWLEDGE_*` | Ingestion limits, chunk size, and chunk overlap. |
-| Storage | `R2_*` | Cloudflare R2 bucket, credentials, and key prefixes. |
-| Email | `EMAIL_*`, `DEFAULT_FROM_EMAIL` | SMTP for verification and password-reset emails. |
-| Frontend | `USER_FRONTEND_URL`, `ADMIN_FRONTEND_URL`, `PASSWORD_RESET_PATH` | Links included in emails. |
+| Google Cloud | `GOOGLE_CLOUD_PROJECT_ID`, `GOOGLE_CLOUD_LOCATION`, `GOOGLE_CLOUD_LIVE_CHAT_LOCATION`, `GOOGLE_APPLICATION_CREDENTIALS` | Vertex AI project, regions (the Live model can use a different region), and the in-container path to the service-account key. |
+| Gemini | `GEMINI_CHAT_MODEL`, `GEMINI_LIVE_CHAT_MODEL`, `AGENT_CLIENT_DEBUG` | Text and voice models. `AGENT_CLIENT_DEBUG` sends agent debug events to the chat socket. |
+| Embeddings | `GEMINI_EMBEDDING_MODEL`, `GEMINI_API_KEY` | Embedding model. The API key is only needed when Vertex AI embeddings are turned off in `app/constants.py`. |
+| Cost tracking | `GEMINI_*_COST_PER_MILLION`, `GEMINI_LIVE_AUDIO_*_COST_PER_MINUTE` | Rates used to record AI cost for text and Live models. |
+| Storage | `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET_NAME`, `R2_ENDPOINT_URL`, `R2_PUBLIC_URL` | Cloudflare R2 bucket and credentials. |
+| Email | `EMAIL_HOST`, `EMAIL_HOST_USER`, `EMAIL_HOST_PASSWORD`, `DEFAULT_FROM_EMAIL` | SMTP for verification and password-reset emails. |
+| Frontend | `USER_FRONTEND_URL` | Base URL for links in emails. |
 | Ports | `WSGI_PORT`, `ASGI_PORT`, `POSTGRES_FORWARD_PORT`, `REDIS_FORWARD_PORT` | Host port mappings. |
+
+### Constants
+
+Values that are the same in every environment live in [`app/constants.py`](app/constants.py), not in `.env`. Edit that file to change them.
+
+| Group | Constants |
+| --- | --- |
+| Knowledge limits | `KNOWLEDGE_*`: max file size, PDF/DOCX pages, spreadsheet/CSV rows, JSON/XML items, chunk size, and chunk overlap |
+| Embeddings | `GEMINI_EMBEDDING_DIMENSIONS`, `GEMINI_EMBEDDING_BATCH_SIZE`, `GEMINI_EMBEDDING_REQUEST_DELAY_SECONDS`, `GEMINI_EMBEDDING_USE_VERTEX` |
+| Gemini | `GEMINI_CHAT_MAX_OUTPUT_TOKENS`, `GEMINI_LIVE_CHAT_VOICE` (default voice) |
+| Custom voices | `CUSTOM_VOICE_*` sample and consent lengths, upload size, and `MAX_CUSTOM_VOICES_PER_CHATBOT` |
+| Storage | `R2_REGION_NAME`, `R2_FILES_PREFIX`, `R2_IMAGES_PREFIX`, `R2_IMAGE_CACHE_CONTROL`, `R2_PRESIGNED_URL_TTL` |
+| Email | `EMAIL_VERIFICATION_OTP_TTL_MINUTES`, `PASSWORD_RESET_PATH` |
 
 ### Initial administrator
 

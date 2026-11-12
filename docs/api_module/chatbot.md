@@ -56,7 +56,7 @@ Provide the chatbot slug as `chatbot`. No request body. Returns a success respon
 
 ## Voices
 
-The voice is used in audio mode only, and each chatbot has its own. A chatbot speaks with its selected custom voice if it has one, otherwise with its prebuilt voice, otherwise with the platform default (`GEMINI_LIVE_CHAT_VOICE`).
+The voice is used in audio mode only, and each chatbot has its own. A chatbot speaks with its selected custom voice if it has one, otherwise with its prebuilt voice, otherwise with the platform default (`GEMINI_LIVE_CHAT_VOICE` in `app/constants.py`).
 
 ### Voice options
 

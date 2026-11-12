@@ -5,7 +5,7 @@ import numpy as np
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
 from django.core.files.uploadedfile import SimpleUploadedFile
-from django.test import TestCase, override_settings
+from django.test import TestCase
 from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APITestCase
@@ -153,7 +153,7 @@ class VoiceServiceTests(StorageMixin, TestCase):
                 self.create(sample_seconds=seconds)
         self.assertEqual(FakeStorage.objects, {})
 
-    @override_settings(MAX_CUSTOM_VOICES_PER_CHATBOT=1)
+    @patch("chatbot.services.voices.MAX_CUSTOM_VOICES_PER_CHATBOT", 1)
     def test_custom_voice_limit(self):
         self.create()
         with self.assertRaises(VoiceError):
@@ -203,7 +203,6 @@ class VoiceServiceTests(StorageMixin, TestCase):
         self.assertEqual(FakeStorage.objects, {})
         self.assertEqual(selected_voice(self.chatbot)["type"], "prebuilt")
 
-    @override_settings(GEMINI_LIVE_CHAT_VOICE="Puck")
     def test_selected_voice_defaults(self):
         self.assertEqual(
             selected_voice(self.chatbot),

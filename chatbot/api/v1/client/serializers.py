@@ -1,10 +1,10 @@
 from uuid import uuid4
 
-from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.db import transaction
 from rest_framework import serializers
 
+from app.constants import R2_IMAGES_PREFIX
 from app.services.r2 import delete_image, schedule_delete_image, upload_image
 from app.utils.storage_fields import R2ImageField
 from chatbot.models import Chatbot
@@ -158,7 +158,7 @@ class ChatbotBaseSerializer(serializers.ModelSerializer):
     def _upload_logo(self, logo, *, suffix=""):
         return upload_image(
             logo,
-            folder=f"{settings.R2_IMAGES_PREFIX}/chatbots",
+            folder=f"{R2_IMAGES_PREFIX}/chatbots",
             public_id=f"chatbot-{suffix}{uuid4().hex}",
         )
 

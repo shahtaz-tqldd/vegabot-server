@@ -1,6 +1,5 @@
 from uuid import uuid4
 
-from django.conf import settings
 from django.contrib.auth import authenticate, get_user_model
 from django.contrib.auth.password_validation import validate_password
 from django.db import IntegrityError, transaction
@@ -8,6 +7,7 @@ from django.utils import timezone
 from rest_framework import serializers
 from rest_framework_simplejwt.tokens import RefreshToken
 
+from app.constants import R2_IMAGES_PREFIX
 from accounts.utils.choices import AccountProvider, AccountStatus
 from accounts.models import UserProfile, phone_regex
 from accounts.services.password import (
@@ -170,7 +170,7 @@ class UserUpdateSerializer(serializers.ModelSerializer):
         if profile_picture is not None:
             upload = upload_image(
                 profile_picture,
-                folder=f"{settings.R2_IMAGES_PREFIX}/users",
+                folder=f"{R2_IMAGES_PREFIX}/users",
                 public_id=f"user-{instance.pk}-{uuid4().hex}",
             )
             profile.avatar_url = upload["url"]

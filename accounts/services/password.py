@@ -5,6 +5,7 @@ from django.template.loader import render_to_string
 from django.utils.encoding import force_bytes, force_str
 from django.utils.http import urlsafe_base64_decode, urlsafe_base64_encode
 
+from app.constants import PASSWORD_RESET_PATH
 from accounts.tasks import send_password_reset_email
 
 
@@ -17,7 +18,7 @@ def build_password_reset_link(user):
     token = password_reset_token_generator.make_token(user)
     return (
         f"{settings.USER_FRONTEND_URL.rstrip('/')}"
-        f"{settings.PASSWORD_RESET_PATH}"
+        f"{PASSWORD_RESET_PATH}"
         f"?uid={uid}&token={token}"
     )
 

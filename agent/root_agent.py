@@ -1,6 +1,6 @@
-from django.conf import settings
 from google.adk.agents import LlmAgent
 
+from app.constants import GEMINI_CHAT_MAX_OUTPUT_TOKENS
 from agent.helpers.instruction import build_instruction
 from agent.helpers.model import build_model, generation_config
 from agent.tools import build_tools
@@ -51,6 +51,6 @@ def build_root_agent(
             mode=mode,
         ),
         generate_content_config=generation_config(
-            settings.GEMINI_CHAT_MAX_OUTPUT_TOKENS,
+            GEMINI_CHAT_MAX_OUTPUT_TOKENS,
         ),
     )
