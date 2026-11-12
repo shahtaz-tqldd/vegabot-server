@@ -82,7 +82,7 @@ Everything a voice picker needs:
 }
 ```
 
-The list has 10 voices: female Kore, Aoede, Leda, Zephyr and Sulafat, and male Puck, Charon, Fenrir, Orus and Achird. `preview_url` is `null` until that voice's preview has been generated.
+The list has 10 voices: female Kore, Leda, and Zephyr, and male Charon and Achird. `preview_url` is `null` until that voice's preview has been generated.
 
 ### Voice preview
 
@@ -98,7 +98,7 @@ Available on your own chatbots and on demo chatbots:
 
 ```json
 {
-  "selected": { "type": "prebuilt", "name": "Puck", "gender": "male", "style": "Upbeat",
+  "selected": { "type": "prebuilt", "name": "Kore", "gender": "female", "style": "Firm",
                 "description": "...", "preview_url": null, "is_default": true },
   "speaking_pace": "normal",
   "custom_voices": [

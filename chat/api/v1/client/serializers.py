@@ -257,6 +257,7 @@ class ChatCartItemSerializer(serializers.ModelSerializer):
             "quantity",
             "line_total",
             "status",
+            "added_to_cart",
             "created_at",
             "updated_at",
         )

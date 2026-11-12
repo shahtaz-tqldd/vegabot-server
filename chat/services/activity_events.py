@@ -7,7 +7,7 @@ counters from one event:
 
     chat.cart.item_added     data.item, data.cart
     chat.cart.item_removed   data.item, data.cart
-    chat.order.placed        data.order
+    chat.order.placed        data.order, data.cart
     chat.escalation.created  data.escalation
 
 Builders read the database (call them from sync code); publishing is the
@@ -67,6 +67,8 @@ def order_placed_event(session, order):
         ORDER_PLACED,
         session.pk,
         order=ChatOrderSerializer(order).data,
+        # Ordered products leave the cart; this is what remains.
+        cart=cart_state(session),
     )
 
 

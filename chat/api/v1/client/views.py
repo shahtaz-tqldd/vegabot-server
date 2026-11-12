@@ -105,7 +105,9 @@ def session_list_queryset(user):
         visible_sessions(user)
         .annotate(
             message_count=Count("messages"),
-            cart_item_count=_count_per_session(ChatCartItem.objects.all()),
+            cart_item_count=_count_per_session(
+                ChatCartItem.objects.filter(added_to_cart=True),
+            ),
             purchased_item_count=_count_per_session(
                 ChatCartItem.objects.filter(status=CartItemStatus.ORDERED),
             ),

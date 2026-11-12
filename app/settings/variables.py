@@ -13,16 +13,12 @@ from app.settings.env import (
 
 APP_ENV = env("APP_ENV", "dev")
 SECRET_KEY = env("APP_SECRET", "django-insecure-change-me")
-DEBUG = APP_ENV == "dev" or env_bool("DEBUG", False)
+DEBUG = APP_ENV == "dev"
 ALLOWED_HOSTS = env_list("ALLOWED_HOSTS")
 CSRF_TRUSTED_ORIGINS = env_list("CSRF_TRUSTED_ORIGINS")
 CORS_ALLOWED_ORIGINS = env_list("CORS_ALLOWED_ORIGINS")
 CORS_ALLOW_CREDENTIALS = True
-SECURE_PROXY_SSL_HEADER = (
-    ("HTTP_X_FORWARDED_PROTO", "https")
-    if env_bool("SECURE_PROXY_SSL_HEADER_ENABLED", APP_ENV == "prod")
-    else None
-)
+SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https") if APP_ENV == "prod" else None
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
@@ -64,9 +60,7 @@ EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
 EMAIL_HOST = env("EMAIL_HOST", "")
 EMAIL_HOST_USER = env("EMAIL_HOST_USER", "")
 EMAIL_HOST_PASSWORD = env("EMAIL_HOST_PASSWORD", "")
-DEFAULT_FROM_EMAIL = env(
-    "DEFAULT_FROM_EMAIL", EMAIL_HOST_USER or "no-reply@vegabot.com"
-)
+DEFAULT_FROM_EMAIL = env("DEFAULT_FROM_EMAIL", EMAIL_HOST_USER)
 
 # STATIC AND MEDIA
 STATIC_URL = "/static/"
@@ -149,8 +143,6 @@ GEMINI_EMBEDDING_MODEL = env("GEMINI_EMBEDDING_MODEL", "gemini-embedding-2")
 GEMINI_API_KEY = env("GEMINI_API_KEY", "")
 GEMINI_CHAT_MODEL = env("GEMINI_CHAT_MODEL", "gemini-2.5-flash")
 GEMINI_LIVE_CHAT_MODEL = env("GEMINI_LIVE_CHAT_MODEL", "gemini-3.8-live")
-# Send agent.debug events (tool calls, results, recommendation decisions)
-# to the chat socket. Always logged server-side.
 AGENT_CLIENT_DEBUG = env_bool("AGENT_CLIENT_DEBUG", DEBUG)
 GEMINI_INPUT_COST_PER_MILLION = env_float("GEMINI_INPUT_COST_PER_MILLION", 0.30)
 GEMINI_OUTPUT_COST_PER_MILLION = env_float("GEMINI_OUTPUT_COST_PER_MILLION", 2.50)
@@ -179,6 +171,11 @@ GEMINI_LIVE_AUDIO_INPUT_COST_PER_MINUTE = env_float(
 GEMINI_LIVE_AUDIO_OUTPUT_COST_PER_MINUTE = env_float(
     "GEMINI_LIVE_AUDIO_OUTPUT_COST_PER_MINUTE", 0.018,
 )
+
+# KNOWLEDGE RE-RANKING (Vertex AI Ranking API)
+KNOWLEDGE_RERANK_ENABLED = env_bool("KNOWLEDGE_RERANK_ENABLED", True)
+GOOGLE_RANKING_MODEL = env("GOOGLE_RANKING_MODEL", "semantic-ranker-default@latest")
+GOOGLE_RANKING_TIMEOUT_SECONDS = env_float("GOOGLE_RANKING_TIMEOUT_SECONDS", 5.0)
 
 # CLOUDFLARE R2 STORAGE
 R2_ACCOUNT_ID = env("R2_ACCOUNT_ID", "")

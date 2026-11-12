@@ -198,5 +198,6 @@ class FeatureProfileTests(TestCase):
 
         self.assertIn("add_to_cart", with_ordering)
         self.assertIn("place_order", with_ordering)
+        self.assertIn("order_product", with_ordering)
         self.assertNotIn("add_to_cart", without)
         self.assertNotIn("add_to_cart", no_products)

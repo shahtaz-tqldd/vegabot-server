@@ -16,10 +16,10 @@ def _hnsw(space):
         m=16,
         ef_construction=64,
         opclasses=["halfvec_cosine_ops"],
-        condition=Q(space=space),
+        condition=Q(space=space, is_searchable=True),
     )
-    
-        
+
+
 class VectorDocument(BaseMinModel):
     """One embedded chunk of knowledge living in a typed vector space.
 
@@ -64,6 +64,10 @@ class VectorDocument(BaseMinModel):
     content_hash = models.CharField(max_length=64, blank=True, db_index=True)
     content = models.TextField()
     metadata = models.JSONField(default=dict, blank=True)
+    # Source enabled AND chatbot not deleted. Precomputed so search needs
+    # no joins and can use the partial HNSW indexes; kept in sync by
+    # vector_store.services.vectorize.sync_searchable.
+    is_searchable = models.BooleanField(default=True)
     # Postgres-only (pgvector + full-text). Skipped on other backends —
     # see the conditional migration.
     embedding = HalfVectorField(dimensions=DIMS)

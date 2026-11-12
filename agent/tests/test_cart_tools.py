@@ -25,7 +25,9 @@ from knowledge.models import Product
 
 User = get_user_model()
 
-CART_TOOLS = {"add_to_cart", "remove_from_cart", "view_cart", "place_order"}
+CART_TOOLS = {
+    "add_to_cart", "remove_from_cart", "view_cart", "place_order", "order_product",
+}
 
 
 class CartToolsTests(TransactionTestCase):
@@ -138,6 +140,46 @@ class CartToolsTests(TransactionTestCase):
         self.assertEqual(len(event["data"]["order"]["items"]), 2)
         self.assertEqual(event["data"]["counts"]["purchased_item_count"], 2)
         self.assertEqual(event["data"]["counts"]["order_count"], 1)
+        self.assertEqual(event["data"]["cart"]["items"], [])
+
+    async def test_order_product_takes_it_out_of_the_cart(self):
+        await self.tools.add_to_cart("K1", 3, self.context)
+        await self.tools.add_to_cart("K2", 1, self.context)
+
+        response = await self.tools.order_product("K1", 1, self.context)
+
+        self.assertEqual(response["status"], "ok")
+        self.assertTrue(response["removed_from_cart"])
+        self.assertEqual(response["total"], "9.99")
+        self.assertEqual([item["ref"] for item in response["cart"]["items"]], ["K2"])
+        widget = await ChatCartItem.objects.aget(product=self.widget)
+        self.assertEqual(widget.status, CartItemStatus.ORDERED)
+        self.assertEqual(widget.quantity, 1)
+
+        event = self.publish.await_args.args[1]
+        self.assertEqual(event["type"], ORDER_PLACED)
+        self.assertEqual(
+            [item["product_name"] for item in event["data"]["cart"]["items"]],
+            ["Gadget"],
+        )
+
+    async def test_order_product_without_cart(self):
+        response = await self.tools.order_product("K2", 2, self.context)
+
+        self.assertEqual(response["status"], "ok")
+        self.assertFalse(response["removed_from_cart"])
+        self.assertEqual(response["total"], "40.00")
+        self.assertEqual(response["cart"]["items"], [])
+        event = self.publish.await_args.args[1]
+        self.assertEqual(event["data"]["counts"]["cart_item_count"], 0)
+        self.assertEqual(event["data"]["counts"]["purchased_item_count"], 1)
+
+    async def test_order_product_rejects_unknown_refs(self):
+        response = await self.tools.order_product("K3", 1, self.context)
+
+        self.assertEqual(response["status"], "not_found")
+        self.assertFalse(await ChatOrder.objects.aexists())
+        self.publish.assert_not_awaited()
 
     async def test_place_order_with_empty_cart_fails(self):
         response = await self.tools.place_order()
