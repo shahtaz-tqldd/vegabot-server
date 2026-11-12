@@ -2,8 +2,6 @@ import csv
 import io
 from unittest.mock import patch
 
-from django.test import override_settings
-
 from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.urls import reverse
@@ -254,7 +252,7 @@ class ProductBulkDeleteTests(KnowledgeTestBase):
         self.assertTrue(Product.objects.filter(pk=foreign.pk).exists())
 
 
-@override_settings(GEMINI_EMBEDDING_BATCH_SIZE=2)
+@patch("knowledge.services.training.GEMINI_EMBEDDING_BATCH_SIZE", 2)
 class CatalogBatchTrainingTests(KnowledgeTestBase):
     def run_training(self, embedding_service):
         vector_service = FakeVectorService()

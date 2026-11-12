@@ -4,12 +4,14 @@ from django.db import models
 from app.core.models import BaseModel, BaseMinModel
 from chat.utils.choices import (
     AttachmentProcessStatus,
+    CartItemStatus,
     ChatMessageAttachmentType,
     ChatMessageSenderType,
     ChatMode,
     EscalationReason,
     EscalationStatus,
     ChatSessionStatus,
+    OrderStatus,
 )
 
 MAX_ATTACHMENTS_PER_MESSAGE = settings.CHAT_ATTACHMENT_MAX_COUNT
@@ -225,3 +227,102 @@ class ChatEscalation(BaseModel):
 
     def __str__(self):
         return f"{self.get_reason_display()} in {self.chat_session_id}"
+
+
+class ChatOrder(BaseModel):
+    """An order the agent placed for the user's cart in one session.
+
+    Payment is out of scope: an order records what the user confirmed.
+    Its products are the session's cart items linked to it (``items``).
+    """
+
+    chat_session = models.ForeignKey(
+        ChatSession,
+        on_delete=models.CASCADE,
+        related_name="orders",
+    )
+    order_number = models.CharField(max_length=20, unique=True)
+    status = models.CharField(
+        max_length=12,
+        choices=OrderStatus.choices,
+        default=OrderStatus.CONFIRMED,
+        db_index=True,
+    )
+    item_count = models.PositiveIntegerField(
+        default=0,
+        help_text="Total quantity of products in the order.",
+    )
+    total_amount = models.DecimalField(max_digits=12, decimal_places=2)
+    currency = models.CharField(max_length=3)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"Order {self.order_number}"
+
+
+class ChatCartItem(BaseModel):
+    """One product the agent added to a session's cart.
+
+    Product details and the unit price are snapshotted when added, so the
+    record stays accurate if the catalog changes. Adding a product that is
+    already in the cart increases its quantity instead of adding a line.
+    """
+
+    chat_session = models.ForeignKey(
+        ChatSession,
+        on_delete=models.CASCADE,
+        related_name="cart_items",
+    )
+    product = models.ForeignKey(
+        "knowledge.Product",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="chat_cart_items",
+    )
+    order = models.ForeignKey(
+        ChatOrder,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="items",
+    )
+    product_name = models.CharField(max_length=255)
+    sku = models.CharField(max_length=120, blank=True, default="")
+    product_url = models.URLField(blank=True, default="")
+    image_url = models.URLField(blank=True, default="")
+    unit_price = models.DecimalField(max_digits=12, decimal_places=2)
+    currency = models.CharField(max_length=3)
+    quantity = models.PositiveIntegerField(default=1)
+    status = models.CharField(
+        max_length=12,
+        choices=CartItemStatus.choices,
+        default=CartItemStatus.IN_CART,
+        db_index=True,
+    )
+
+    class Meta:
+        ordering = ["created_at", "id"]
+        indexes = [
+            models.Index(
+                fields=["chat_session", "status"],
+                name="chat_cart_session_status_idx",
+            ),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["chat_session", "product"],
+                condition=models.Q(status=CartItemStatus.IN_CART),
+                name="unique_cart_line_per_session_product",
+            ),
+        ]
+
+    @property
+    def line_total(self):
+        return self.unit_price * self.quantity
+
+    def __str__(self):
+        return f"{self.quantity} x {self.product_name}"
+

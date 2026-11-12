@@ -17,7 +17,6 @@ from base.signals import delete_public_asset_with_record
 @override_settings(
     R2_BUCKET_NAME="vegabot-chatbot",
     R2_PUBLIC_URL="https://assets.example.com",
-    R2_IMAGES_PREFIX="images",
 )
 class R2StorageTests(SimpleTestCase):
     def setUp(self):

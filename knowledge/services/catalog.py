@@ -6,7 +6,8 @@ import io
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
-from django.conf import settings
+from app.constants import KNOWLEDGE_MAX_CSV_ROWS
+
 
 PRODUCT_TEMPLATE_COLUMNS = [
     "name",
@@ -286,9 +287,9 @@ def _parse_catalog_upload(file_obj, normalize_row):
         )
     if not rows:
         raise CatalogImportError("The uploaded file contains no data rows.")
-    if settings.KNOWLEDGE_MAX_CSV_ROWS and len(rows) > settings.KNOWLEDGE_MAX_CSV_ROWS:
+    if KNOWLEDGE_MAX_CSV_ROWS and len(rows) > KNOWLEDGE_MAX_CSV_ROWS:
         raise CatalogImportError(
-            f"Import cannot exceed {settings.KNOWLEDGE_MAX_CSV_ROWS} rows.",
+            f"Import cannot exceed {KNOWLEDGE_MAX_CSV_ROWS} rows.",
         )
 
     items_data = []

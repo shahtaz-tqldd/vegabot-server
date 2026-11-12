@@ -1,6 +1,5 @@
 from uuid import uuid4
 
-from django.conf import settings
 from django.contrib.auth import authenticate, get_user_model
 from django.contrib.auth.password_validation import validate_password
 from django.db import IntegrityError, transaction
@@ -8,12 +7,9 @@ from django.utils import timezone
 from rest_framework import serializers
 from rest_framework_simplejwt.tokens import RefreshToken
 
+from app.constants import R2_IMAGES_PREFIX
 from accounts.utils.choices import AccountProvider, AccountStatus
 from accounts.models import UserProfile, phone_regex
-from accounts.services.firebase import (
-    FirebaseVerificationError,
-    verify_firebase_id_token,
-)
 from accounts.services.password import (
     resolve_password_reset_user,
     send_user_password_reset_email,
@@ -174,7 +170,7 @@ class UserUpdateSerializer(serializers.ModelSerializer):
         if profile_picture is not None:
             upload = upload_image(
                 profile_picture,
-                folder=f"{settings.R2_IMAGES_PREFIX}/users",
+                folder=f"{R2_IMAGES_PREFIX}/users",
                 public_id=f"user-{instance.pk}-{uuid4().hex}",
             )
             profile.avatar_url = upload["url"]
@@ -352,176 +348,6 @@ class LoginSerializer(serializers.Serializer):
 
         user.last_login = timezone.now()
         user.save(update_fields=["last_login"])
-        return build_auth_token_payload(user)
-
-
-class GoogleLoginSerializer(serializers.Serializer):
-    provider = serializers.ChoiceField(
-        choices=[AccountProvider.GOOGLE],
-        required=False,
-        default=AccountProvider.GOOGLE,
-    )
-    firebase_id_token = serializers.CharField(write_only=True)
-    google_access_token = serializers.CharField(
-        write_only=True,
-        required=False,
-        allow_blank=True,
-        allow_null=True,
-    )
-    firebase_uid = serializers.CharField(max_length=128, required=False)
-    email = serializers.EmailField(required=False)
-    email_verified = serializers.BooleanField(required=False, default=False)
-    name = serializers.CharField(max_length=50, required=False, allow_blank=True)
-    photo_url = serializers.URLField(required=False, allow_blank=True, allow_null=True)
-    phone_number = serializers.CharField(
-        max_length=50,
-        required=False,
-        allow_blank=True,
-        allow_null=True,
-        validators=[phone_regex],
-    )
-
-    def validate(self, attrs):
-        try:
-            decoded_token = verify_firebase_id_token(attrs["firebase_id_token"])
-        except FirebaseVerificationError as exc:
-            raise serializers.ValidationError({"firebase_id_token": str(exc)}) from exc
-
-        if decoded_token:
-            firebase_uid = decoded_token.get("uid")
-            email = decoded_token.get("email")
-            if not firebase_uid:
-                raise serializers.ValidationError(
-                    {"firebase_id_token": "Firebase token does not contain a user ID."}
-                )
-            if not email:
-                raise serializers.ValidationError(
-                    {
-                        "firebase_id_token": (
-                            "Firebase token does not contain an email address."
-                        )
-                    }
-                )
-            attrs["firebase_uid"] = firebase_uid
-            attrs["email"] = email
-            attrs["email_verified"] = bool(decoded_token.get("email_verified", False))
-            attrs["name"] = attrs.get("name") or decoded_token.get("name", "")
-            attrs["photo_url"] = attrs.get("photo_url") or decoded_token.get(
-                "picture", ""
-            )
-            attrs["phone_number"] = attrs.get("phone_number") or decoded_token.get(
-                "phone_number"
-            )
-        else:
-            missing_fields = [
-                field for field in ("firebase_uid", "email") if not attrs.get(field)
-            ]
-            if missing_fields:
-                raise serializers.ValidationError(
-                    {field: "This field is required." for field in missing_fields}
-                )
-
-        attrs["email"] = User.objects.normalize_email(attrs["email"]).strip().casefold()
-        if not attrs["email_verified"]:
-            raise serializers.ValidationError(
-                {"email_verified": "Google account email must be verified."}
-            )
-        return attrs
-
-    def save(self, **kwargs):
-        email = self.validated_data["email"]
-        firebase_uid = self.validated_data["firebase_uid"]
-        created_account = False
-
-        try:
-            with transaction.atomic():
-                user = (
-                    User.objects.select_for_update()
-                    .filter(firebase_uid=firebase_uid)
-                    .first()
-                )
-                if user is None:
-                    user = (
-                        User.objects.select_for_update()
-                        .filter(email__iexact=email)
-                        .first()
-                    )
-
-                if user is None:
-                    created_account = True
-                    is_new_or_unclaimed_account = True
-                    user = User.objects.create_user(
-                        email=email,
-                        password=None,
-                        name=self.validated_data.get("name", ""),
-                        provider=AccountProvider.GOOGLE,
-                        firebase_uid=firebase_uid,
-                        firebase_id_token=self.validated_data["firebase_id_token"],
-                        google_access_token=self.validated_data.get(
-                            "google_access_token"
-                        )
-                        or "",
-                        is_email_verified=self.validated_data["email_verified"],
-                    )
-                    profile = get_or_create_profile(user)
-                else:
-                    is_new_or_unclaimed_account = is_unclaimed_invitation_account(user)
-                    profile = get_or_create_profile(user)
-                    if profile.status == AccountStatus.SUSPENDED:
-                        raise serializers.ValidationError(
-                            {"error": "User is suspended."}
-                        )
-                    if profile.status == AccountStatus.DEACTIVATED or user.deleted_at:
-                        user.reactivate()
-                    elif not user.is_active:
-                        raise serializers.ValidationError(
-                            {"error": "User is disabled."}
-                        )
-
-                    user.email = email
-                    user.provider = AccountProvider.GOOGLE
-                    user.firebase_uid = firebase_uid
-                    user.firebase_id_token = self.validated_data["firebase_id_token"]
-                    user.google_access_token = (
-                        self.validated_data.get("google_access_token") or ""
-                    )
-                    user.is_email_verified = (
-                        user.is_email_verified or self.validated_data["email_verified"]
-                    )
-                phone_number = self.validated_data.get("phone_number")
-                profile_update_fields = []
-                if phone_number is not None:
-                    profile.phone = phone_number or None
-                    profile_update_fields.append("phone")
-
-                photo_url = self.validated_data.get("photo_url")
-                if created_account and photo_url:
-                    profile.avatar_url = photo_url
-                    profile_update_fields.append("avatar_url")
-
-                user.last_login = timezone.now()
-                user.save(
-                    update_fields=[
-                        "email",
-                        "provider",
-                        "firebase_uid",
-                        "firebase_id_token",
-                        "google_access_token",
-                        "is_email_verified",
-                        "last_login",
-                        "updated_at",
-                    ]
-                )
-                if profile_update_fields:
-                    profile.save(update_fields=profile_update_fields)
-
-        except IntegrityError as exc:
-            raise serializers.ValidationError(
-                {"error": "Could not complete Google login. Please try again."}
-            ) from exc
-
-        if user.is_email_verified:
-            complete_email_verification(user)
         return build_auth_token_payload(user)
 
 

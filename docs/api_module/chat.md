@@ -33,6 +33,10 @@ Output `data` (session detail):
   "chatbot": { "slug": "...", "chatbot_name": "...", "tone": "..." },
   "status": "open",
   "messages": [],
+  "cart_item_count": 0,
+  "purchased_item_count": 0,
+  "order_count": 0,
+  "escalation_count": 0,
   "last_activity_at": null,
   "created_at": "...",
   "updated_at": "..."
@@ -51,6 +55,10 @@ Output `data[]`:
   "chatbot": { "slug": "...", "chatbot_name": "...", "tone": "..." },
   "status": "open",
   "message_count": 12,
+  "cart_item_count": 3,
+  "purchased_item_count": 2,
+  "order_count": 1,
+  "escalation_count": 1,
   "last_message": {
     "sender_type": "user",
     "content": "first 120 chars",
@@ -62,6 +70,13 @@ Output `data[]`:
 ```
 
 `page_size` defaults to 20 (max 100). `last_message` is `null` when empty.
+
+Activity counts (also on session details):
+
+- `cart_item_count`: product lines the agent added to the cart, whatever happened to them later.
+- `purchased_item_count`: product lines that were ordered.
+- `order_count`: orders placed.
+- `escalation_count`: human escalations raised.
 
 ### Session details
 
@@ -75,11 +90,69 @@ Output `data`: session detail (same as create) with full `messages[]` timeline.
 
 Input: query `session` only. No body. Output: success message only.
 
+### Session cart items
+
+`GET /sessions/cart-items/?session=<uuid>&status=<in_cart|ordered|removed>&page=<number>`
+
+Every product the agent added to the session's cart, oldest first. `status` is optional. Output `data[]`:
+
+```json
+{
+  "id": "uuid",
+  "session": "uuid",
+  "product": "uuid",
+  "order": "uuid or null",
+  "product_name": "Trail Runner 2",
+  "sku": "TR-2",
+  "product_url": "https://...",
+  "image_url": "https://...",
+  "unit_price": "89.00",
+  "currency": "USD",
+  "quantity": 2,
+  "line_total": "178.00",
+  "status": "ordered",
+  "created_at": "...",
+  "updated_at": "..."
+}
+```
+
+`status`: `in_cart` (still in the cart), `ordered` (part of `order`), `removed`. Adding a product that is already in the cart increases `quantity` instead of adding a line. Product details and `unit_price` are snapshots taken when the item was added. `product` is `null` when the product was later deleted.
+
+### Session orders (purchases)
+
+`GET /sessions/orders/?session=<uuid>&page=<number>`
+
+Orders placed in the session, newest first. Output `data[]`:
+
+```json
+{
+  "id": "uuid",
+  "session": "uuid",
+  "order_number": "VB-3F9A1C2B7D",
+  "status": "confirmed",
+  "item_count": 3,
+  "total_amount": "197.00",
+  "currency": "USD",
+  "items": [ { ...cart item } ],
+  "created_at": "..."
+}
+```
+
+`item_count` is the total quantity. Payment is not collected in chat.
+
+### Session escalations
+
+`GET /sessions/escalations/?session=<uuid>&page=<number>`
+
+Human escalations raised in the session, newest first. Each item has the same shape as in `GET /escalations/list/`: `id`, `session`, `message`, `chatbot`, `question`, `reason`, `status`, `resolution_note`, `created_at`.
+
+The three lists return `404` for sessions the user cannot see.
+
 ## Messages
 
 ### Message object
 
-Returned by the list endpoint, `chat.message.created`, and `agent.response.completed`:
+Returned by the list endpoint, session details, `chat.message.created`, and `agent.response.completed`:
 
 ```json
 {
@@ -102,6 +175,19 @@ Returned by the list endpoint, `chat.message.created`, and `agent.response.compl
   ],
   "recommendations": [ { ...recommendation card } ],
   "response_time_ms": 1234,
+  "usage": {
+    "total_tokens": 4500,
+    "input_tokens": 4000,
+    "output_tokens": 500,
+    "thinking_tokens": 0,
+    "cached_input_tokens": 0,
+    "audio_input_tokens": 3000,
+    "audio_output_tokens": 400,
+    "audio_input_seconds": 14.2,
+    "audio_output_seconds": 9.6,
+    "cost": 0.015,
+    "model": "gemini-live-..."
+  },
   "created_at": "..."
 }
 ```
@@ -110,7 +196,10 @@ Returned by the list endpoint, `chat.message.created`, and `agent.response.compl
 - `mode`: `text` (typed / text reply) | `audio` (spoken / voice reply). For a `user` message in `audio` mode, `content` is the transcript of what the user said.
 - `recommendations`: product/service cards shown with an agent reply (always `[]` on user messages). Same shape as [Recommendation card](#recommendation-card), so history reloads render the same cards as live replies.
 - `attachment_type`: `image` | `document` | `audio` | `video` | `other`; attachment `status`: `pending` | `processed` | `failed`
-- `response_time_ms`: set on `agent` messages only
+- `response_time_ms`: set on `agent` messages only. The delay between the user's input and the agent's **first** output, which is what the user waits for. Text mode measures from the user message to the first streamed text chunk. Audio mode measures from the user's last speech caption (or typed message) to the first chunk of agent audio or transcript. The time spent speaking a long reply is not included.
+- `usage`: tokens and estimated cost (USD) of generating an `agent` message, and the model that produced it. It is `null` on `user` messages, because the user's input (including audio) is counted in the reply's `input_tokens`. It is also `null` when the model reported no usage. Usage is stored per message in `AIUsage`.
+  - Voice replies are billed per modality: text, audio, and image/video each have their own rate. `audio_*_tokens` is the audio share of the input and output tokens. `audio_input_seconds` is the user audio streamed since the previous reply, and `audio_output_seconds` is the agent audio produced.
+  - `cost` prices each modality with the `GEMINI_LIVE_*_COST_PER_MILLION` rates. When the model reports no per-modality breakdown, audio is priced by duration with the `GEMINI_LIVE_AUDIO_*_COST_PER_MINUTE` rates.
 
 ### List messages
 
@@ -173,6 +262,10 @@ Only the session owner can send `mode.set` and `message.send`.
 | `agent.response.completed` | The reply is final and stored |
 | `agent.response.failed` | The reply failed; discard the pending bubble |
 | `chat.message.created` | Any new message in the session (user or agent, from any tab or REST) |
+| `chat.cart.item_added` | The agent added a product to the cart (or increased its quantity) |
+| `chat.cart.item_removed` | The agent removed a product from the cart |
+| `chat.order.placed` | The agent placed an order for the cart |
+| `chat.escalation.created` | The agent escalated the conversation to a human |
 | `notification.created` | Notification for a chatbot you own (e.g. training completed) |
 | `error` | A request was rejected; see [Errors](#errors) |
 
@@ -209,6 +302,22 @@ Payloads:
 
 { "type": "notification.created", "data": { ...notification } }
 
+{
+  "type": "chat.cart.item_added",
+  "data": {
+    "session_id": "uuid",
+    "item": { ...cart item },
+    "cart": { "items": [ { ...cart item } ], "item_count": 3, "total": "197.00", "currency": "USD" },
+    "counts": { "cart_item_count": 2, "purchased_item_count": 0, "order_count": 0, "escalation_count": 0 }
+  }
+}
+
+{ "type": "chat.cart.item_removed", "data": { "session_id": "uuid", "item": { ...cart item }, "cart": { ... }, "counts": { ... } } }
+
+{ "type": "chat.order.placed", "data": { "session_id": "uuid", "order": { ...order with items }, "counts": { ... } } }
+
+{ "type": "chat.escalation.created", "data": { "session_id": "uuid", "escalation": { ...escalation }, "counts": { ... } } }
+
 { "type": "error", "message": "...", "code": "busy" }
 ```
 
@@ -220,6 +329,7 @@ Field notes:
 - `completed.message` is `null` only when a voice reply was interrupted before anything was said.
 - `interrupted: true` (audio): the user talked over the agent and the agent stopped. **Flush the audio playback queue.** The stored message holds what had been said.
 - `sources`: the documents/products/services cited by a text reply (empty in audio mode).
+- `chat.cart.*`, `chat.order.placed`, `chat.escalation.created` arrive **while** the agent is replying, as soon as the tool succeeds, in text and audio mode alike. Use them for toasts. `counts` holds the session's updated activity counts, and `cart` (cart events) holds the whole current cart, so you never need to compute either. An escalation for a question that is already open sends no second event.
 
 ### Recommendation card
 
@@ -245,6 +355,7 @@ Sent when the agent recommends products or services: the 2-3 items the agent cho
 - `price`: decimal string, or `null` when unknown (for services this is the service cost). Show it with `currency` and never recompute it.
 - `url`, `image_url`, `sku`, `category`: products only (`""` for services). `service_type`: services only (`""` for products).
 - A chatbot without trained products or services never sends cards: the agent does not get the product/service tools or instructions.
+- Cart and order events are only sent by chatbots with `product_ordering_enabled`; other chatbots never get the cart tools.
 
 ### Text mode flow
 

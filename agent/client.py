@@ -34,6 +34,7 @@ from agent.helpers.usage import build_response
 from agent.root_agent import build_root_agent
 from app.utils.logger import logger
 from chat.models import ChatSession
+from chat.services.messages import elapsed_ms
 from chat.services.multimodal import build_message_parts
 from chat.utils.choices import ChatMode, ChatSessionStatus
 
@@ -240,6 +241,9 @@ class AgentClient:
                 model_name=self.model_name,
                 mode=self.mode,
                 source_metadata=sources,
+                response_time_ms=elapsed_ms(
+                    user_message.created_at, stream.first_output_at,
+                ),
             )
         except Exception:
             await stream.fail(FAILED_REPLY_MESSAGE)

@@ -8,8 +8,17 @@ from pathlib import Path
 from urllib.parse import urlparse
 from xml.etree import ElementTree
 
-from django.conf import settings
 from rest_framework import serializers
+
+from app.constants import (
+    KNOWLEDGE_DOCX_WORDS_PER_PAGE,
+    KNOWLEDGE_MAX_CSV_ROWS,
+    KNOWLEDGE_MAX_DOCX_PAGES,
+    KNOWLEDGE_MAX_FILE_SIZE_MB,
+    KNOWLEDGE_MAX_PDF_PAGES,
+    KNOWLEDGE_MAX_SPREADSHEET_ROWS,
+    KNOWLEDGE_MAX_STRUCTURED_ITEMS,
+)
 
 
 ALLOWED_FILE_TYPES = {"pdf", "docx", "xlsx", "csv", "xml", "json"}
@@ -47,10 +56,10 @@ def validate_knowledge_file(uploaded_file):
         raise serializers.ValidationError(
             f"Unsupported file type. Allowed types: {allowed}."
         )
-    max_bytes = settings.KNOWLEDGE_MAX_FILE_SIZE_MB * 1024 * 1024
+    max_bytes = KNOWLEDGE_MAX_FILE_SIZE_MB * 1024 * 1024
     if uploaded_file.size > max_bytes:
         raise serializers.ValidationError(
-            f"File cannot exceed {settings.KNOWLEDGE_MAX_FILE_SIZE_MB} MB."
+            f"File cannot exceed {KNOWLEDGE_MAX_FILE_SIZE_MB} MB."
         )
     if uploaded_file.size == 0:
         raise serializers.ValidationError("The uploaded file is empty.")
@@ -78,9 +87,9 @@ def validate_knowledge_file(uploaded_file):
 def _validate_pdf(file_obj):
     from pypdf import PdfReader
 
-    if len(PdfReader(file_obj).pages) > settings.KNOWLEDGE_MAX_PDF_PAGES:
+    if len(PdfReader(file_obj).pages) > KNOWLEDGE_MAX_PDF_PAGES:
         raise serializers.ValidationError(
-            f"PDF cannot exceed {settings.KNOWLEDGE_MAX_PDF_PAGES} pages."
+            f"PDF cannot exceed {KNOWLEDGE_MAX_PDF_PAGES} pages."
         )
 
 
@@ -89,10 +98,10 @@ def _validate_docx(file_obj):
 
     document = Document(file_obj)
     words = sum(len(paragraph.text.split()) for paragraph in document.paragraphs)
-    estimated_pages = math.ceil(words / max(settings.KNOWLEDGE_DOCX_WORDS_PER_PAGE, 1))
-    if estimated_pages > settings.KNOWLEDGE_MAX_DOCX_PAGES:
+    estimated_pages = math.ceil(words / max(KNOWLEDGE_DOCX_WORDS_PER_PAGE, 1))
+    if estimated_pages > KNOWLEDGE_MAX_DOCX_PAGES:
         raise serializers.ValidationError(
-            f"DOCX cannot exceed {settings.KNOWLEDGE_MAX_DOCX_PAGES} estimated pages."
+            f"DOCX cannot exceed {KNOWLEDGE_MAX_DOCX_PAGES} estimated pages."
         )
 
 
@@ -104,9 +113,9 @@ def _validate_xlsx(file_obj):
         row_count = sum(sheet.max_row for sheet in workbook.worksheets)
     finally:
         workbook.close()
-    if row_count > settings.KNOWLEDGE_MAX_SPREADSHEET_ROWS:
+    if row_count > KNOWLEDGE_MAX_SPREADSHEET_ROWS:
         raise serializers.ValidationError(
-            f"XLSX cannot exceed {settings.KNOWLEDGE_MAX_SPREADSHEET_ROWS} total rows."
+            f"XLSX cannot exceed {KNOWLEDGE_MAX_SPREADSHEET_ROWS} total rows."
         )
 
 
@@ -116,9 +125,9 @@ def _read_text(file_obj):
 
 def _validate_csv(file_obj):
     row_count = sum(1 for _ in csv.reader(io.StringIO(_read_text(file_obj))))
-    if row_count > settings.KNOWLEDGE_MAX_CSV_ROWS:
+    if row_count > KNOWLEDGE_MAX_CSV_ROWS:
         raise serializers.ValidationError(
-            f"CSV cannot exceed {settings.KNOWLEDGE_MAX_CSV_ROWS} rows."
+            f"CSV cannot exceed {KNOWLEDGE_MAX_CSV_ROWS} rows."
         )
 
 
@@ -132,15 +141,15 @@ def _structured_item_count(value):
 
 def _validate_json(file_obj):
     item_count = _structured_item_count(json.loads(_read_text(file_obj)))
-    if item_count > settings.KNOWLEDGE_MAX_STRUCTURED_ITEMS:
+    if item_count > KNOWLEDGE_MAX_STRUCTURED_ITEMS:
         raise serializers.ValidationError(
-            f"JSON cannot exceed {settings.KNOWLEDGE_MAX_STRUCTURED_ITEMS} items."
+            f"JSON cannot exceed {KNOWLEDGE_MAX_STRUCTURED_ITEMS} items."
         )
 
 
 def _validate_xml(file_obj):
     item_count = sum(1 for _ in ElementTree.parse(file_obj).iter())
-    if item_count > settings.KNOWLEDGE_MAX_STRUCTURED_ITEMS:
+    if item_count > KNOWLEDGE_MAX_STRUCTURED_ITEMS:
         raise serializers.ValidationError(
-            f"XML cannot exceed {settings.KNOWLEDGE_MAX_STRUCTURED_ITEMS} elements."
+            f"XML cannot exceed {KNOWLEDGE_MAX_STRUCTURED_ITEMS} elements."
         )

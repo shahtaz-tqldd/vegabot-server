@@ -19,6 +19,7 @@ import asyncio
 from uuid import uuid4
 
 from asgiref.sync import sync_to_async
+from django.utils import timezone
 from google.adk.agents.run_config import RunConfig, StreamingMode
 from google.adk.runners import LiveRequestQueue
 from google.genai import types
@@ -55,12 +56,26 @@ from agent.schema import AgentResultSchema, TokenUsageSchema
 from agent.tools import RECOMMENDATION_TOOL
 from app.utils.logger import logger
 from base.socket.events import VOICE_TRANSCRIPT
-from chat.services.messages import create_user_message
+from chat.services.messages import create_user_message, elapsed_ms
+from chatbot.services.voices import live_speech_config
 from chat.utils.choices import ChatMode
 
 AUDIO_MIME_TYPE = "audio/pcm;rate=16000"
+OUTPUT_SAMPLE_RATE = 24000  # the Live model's audio output rate
+PCM_SAMPLE_WIDTH = 2  # bytes per 16-bit mono sample
 FAILED_VOICE_MESSAGE = "The voice session ended unexpectedly."
 HEARTBEAT_SECONDS = 30
+
+
+def pcm_seconds(byte_count, mime_type, default_rate):
+    """Duration of 16-bit mono PCM; the rate comes from ``rate=`` in the
+    MIME type (for example audio/pcm;rate=16000)."""
+    rate = default_rate
+    for param in (mime_type or "").split(";")[1:]:
+        key, _, value = param.strip().partition("=")
+        if key == "rate" and value.isdigit():
+            rate = int(value)
+    return byte_count / (rate * PCM_SAMPLE_WIDTH) if rate else 0.0
 
 
 class VoiceSession:
@@ -102,6 +117,13 @@ class VoiceSession:
         self._stream = None
         self._segments = []
         self._recommendations = []
+        # Latest user input (speech caption or typed text) before the
+        # agent's first output: the start of the agent's response delay.
+        self._input_at = None
+
+    def _mark_input(self):
+        if self._stream is None:
+            self._input_at = timezone.now()
 
     def _current_turn_id(self):
         # Allocated on the turn's first event (often a tool call, before
@@ -146,6 +168,11 @@ class VoiceSession:
                 profile=profile,
                 mode=self.mode,
                 model_config=model_config,
+                # The chatbot's selected voice (prebuilt or custom).
+                speech_config=live_speech_config(
+                    session.chatbot,
+                    default_voice=model_config.get("voice_name"),
+                ),
             )
             return session, model_config, agent
 
@@ -198,17 +225,15 @@ class VoiceSession:
         """One PCM chunk of the user's microphone."""
         if self.queue is None:
             raise RuntimeError("The voice session is not started.")
-        self.queue.send_realtime(
-            types.Blob(
-                data=chunk,
-                mime_type=self.model_config.get("audio_mime_type", AUDIO_MIME_TYPE),
-            ),
-        )
+        mime_type = self.model_config.get("audio_mime_type", AUDIO_MIME_TYPE)
+        self.usage.audio_input_seconds += pcm_seconds(len(chunk), mime_type, 16000)
+        self.queue.send_realtime(types.Blob(data=chunk, mime_type=mime_type))
 
     async def send_text(self, text):
         """A typed message while in audio mode; answered by voice."""
         if self.queue is None:
             raise RuntimeError("The voice session is not started.")
+        self._mark_input()
         self.queue.send_content(
             types.Content(role="user", parts=[types.Part.from_text(text=text)]),
         )
@@ -271,6 +296,9 @@ class VoiceSession:
             inline = part.inline_data
             if inline and inline.data:
                 await self._ensure_turn()
+                self.usage.audio_output_seconds += pcm_seconds(
+                    len(inline.data), inline.mime_type, OUTPUT_SAMPLE_RATE,
+                )
                 await self.send_bytes(bytes(inline.data))
 
         for stage, data in tool_diagnostics(event):
@@ -294,6 +322,7 @@ class VoiceSession:
                 self.send_json, mode=self.mode, turn_id=self._current_turn_id(),
             )
             await self._stream.start()
+        self._stream.mark_output()
 
     async def _on_user_transcript(self, event):
         """Caption the user's speech; persist each final utterance.
@@ -304,6 +333,7 @@ class VoiceSession:
         text = event.input_transcription.text or ""
         if not text.strip():
             return
+        self._mark_input()
         data = {"partial": bool(event.partial), "text": text}
         if not event.partial:
             try:
@@ -354,11 +384,13 @@ class VoiceSession:
         text = " ".join(self._segments).strip()
         recommendations = list(self._recommendations)
         turn_id = self._current_turn_id()
+        input_at = self._input_at
         self._reset_turn()
         if stream is None:
             stream = TurnStream(self.send_json, mode=self.mode, turn_id=turn_id)
             await stream.start()
             await stream.delta(text)
+        response_time_ms = elapsed_ms(input_at, stream.first_output_at)
 
         message = None
         if text:
@@ -376,6 +408,7 @@ class VoiceSession:
                     response=response,
                     model_name=self.model_name,
                     mode=self.mode,
+                    response_time_ms=response_time_ms,
                 )
                 message = reply["message"]
             except Exception:

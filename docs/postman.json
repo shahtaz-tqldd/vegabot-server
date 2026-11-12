@@ -107,7 +107,7 @@
   "item": [
     {
       "name": "Accounts",
-      "description": "Identity and account lifecycle: registration, email verification (OTP), JWT login, Google/Firebase login, password reset, profile and settings. Base path: `/api/v1/accounts/`.",
+      "description": "Identity and account lifecycle: registration, email verification (OTP), JWT login, password reset, profile and settings. Base path: `/api/v1/accounts/`.",
       "item": [
         {
           "name": "Register",
@@ -208,51 +208,6 @@
             "body": {
               "mode": "raw",
               "raw": "{\n  \"email\": \"jane@example.com\",\n  \"password\": \"Str0ngPass!x\"\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            },
-            "auth": {
-              "type": "noauth"
-            },
-            "event": {
-              "listen": "test",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "const json = pm.response.json();",
-                  "const d = json.data || {};",
-                  "if (d.access_token) pm.collectionVariables.set('access_token', d.access_token);",
-                  "if (d.refresh_token) pm.collectionVariables.set('refresh_token', d.refresh_token);"
-                ]
-              }
-            }
-          },
-          "response": []
-        },
-        {
-          "name": "Google (Firebase) Login",
-          "request": {
-            "method": "POST",
-            "description": "Sign in / sign up with a Firebase ID token. **Public.**\n\n**Body**: `firebase_id_token` (required, verified server-side), `provider` (`\"google\"`, default), `email`, `email_verified`, `name`, `photo_url`, `phone_number`, `firebase_uid` (only if the token cannot be decoded server-side).\n\n**200** → `data: {access_token, refresh_token}`.",
-            "url": {
-              "raw": "{{base_url}}/api/v1/accounts/google/",
-              "host": [
-                "{{base_url}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "accounts",
-                "google",
-                ""
-              ]
-            },
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"provider\": \"google\",\n  \"firebase_id_token\": \"<firebase-id-token>\",\n  \"email_verified\": true\n}",
               "options": {
                 "raw": {
                   "language": "json"

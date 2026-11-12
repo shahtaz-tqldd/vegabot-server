@@ -4,6 +4,14 @@ NOTIFICATION_CREATED = "notification.created"
 CHAT_MESSAGE_CREATED = "chat.message.created"
 SESSION_UPDATED = "chat.session.updated"
 
+# Session activity recorded by the agent's tools, pushed to the session
+# socket for frontend notifications. Each carries the session's updated
+# activity counts.
+CART_ITEM_ADDED = "chat.cart.item_added"
+CART_ITEM_REMOVED = "chat.cart.item_removed"
+ORDER_PLACED = "chat.order.placed"
+ESCALATION_CREATED = "chat.escalation.created"
+
 # Chat mode (text <-> audio) on the session socket.
 MODE_CHANGED = "mode.changed"
 

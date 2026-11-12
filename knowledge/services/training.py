@@ -1,10 +1,14 @@
 import hashlib
 import logging
 
-from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
 
+from app.constants import (
+    GEMINI_EMBEDDING_BATCH_SIZE,
+    KNOWLEDGE_CHUNK_OVERLAP,
+    KNOWLEDGE_CHUNK_SIZE,
+)
 from app.services.web_scrapper import WebScraper
 from knowledge.models import KnowledgeBase, KnowledgeTrainingLog
 from knowledge.services.catalog import (
@@ -41,8 +45,8 @@ def split_knowledge_content(content):
 
     splitter = TokenTextSplitter(
         encoding_name="cl100k_base",
-        chunk_size=settings.KNOWLEDGE_CHUNK_SIZE,
-        chunk_overlap=settings.KNOWLEDGE_CHUNK_OVERLAP,
+        chunk_size=KNOWLEDGE_CHUNK_SIZE,
+        chunk_overlap=KNOWLEDGE_CHUNK_OVERLAP,
         strip_whitespace=True,
     )
     return [chunk for chunk in splitter.split_text(content) if chunk.strip()]
@@ -405,7 +409,7 @@ class CatalogTrainingService:
             batch_size = max(
                 int(
                     getattr(embedding_service, "batch_size", None)
-                    or settings.GEMINI_EMBEDDING_BATCH_SIZE
+                    or GEMINI_EMBEDDING_BATCH_SIZE
                     or 1
                 ),
                 1,
