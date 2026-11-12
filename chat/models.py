@@ -268,6 +268,8 @@ class ChatCartItem(BaseModel):
     Product details and the unit price are snapshotted when added, so the
     record stays accurate if the catalog changes. Adding a product that is
     already in the cart increases its quantity instead of adding a line.
+    A product ordered directly gets a line that never was in the cart
+    (``added_to_cart=False``) and is created already ordered.
     """
 
     chat_session = models.ForeignKey(
@@ -302,6 +304,7 @@ class ChatCartItem(BaseModel):
         default=CartItemStatus.IN_CART,
         db_index=True,
     )
+    added_to_cart = models.BooleanField(default=True)
 
     class Meta:
         ordering = ["created_at", "id"]

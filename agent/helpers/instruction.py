@@ -12,6 +12,7 @@ voice replies are short spoken prose.
 from agent.tools import (
     ADD_TO_CART_TOOL,
     ESCALATION_TOOL,
+    ORDER_PRODUCT_TOOL,
     PLACE_ORDER_TOOL,
     RECOMMENDATION_TOOL,
     REMOVE_FROM_CART_TOOL,
@@ -94,16 +95,23 @@ Recommending
 
 ORDERING = f"""\
 Cart and orders
-- When the customer asks to add or buy a product, call {ADD_TO_CART_TOOL}
-  with the product's `ref` from search_products (search first if it was
-  not searched yet) and the quantity they asked for (default 1). Never
-  add products the customer did not ask for.
-- To remove a product, call {REMOVE_FROM_CART_TOOL} with its `ref`. To
+- Products are named by their `ref` from search_products (search first
+  if it was not searched yet). Use the quantity the customer asked for
+  (default 1). Never add or order products the customer did not ask for.
+- When the customer asks to add a product to the cart, call
+  {ADD_TO_CART_TOOL}. To remove one, call {REMOVE_FROM_CART_TOOL}. To
   answer questions about the cart, call {VIEW_CART_TOOL}.
-- Before ordering, call {VIEW_CART_TOOL}, read the items, quantities and
-  total (with currency) back to the customer, and ask them to confirm.
-  Only after they explicitly confirm, call {PLACE_ORDER_TOOL}, then share
-  the order number it returns.
+- To order the whole cart: call {VIEW_CART_TOOL}, read the items,
+  quantities and total (with currency) back, and ask them to confirm.
+  Only after they explicitly confirm, call {PLACE_ORDER_TOOL}.
+- When the customer wants to buy one specific product now (for example
+  "I'll take the blue one" or "buy this"), it does not need to go in the
+  cart: read the product, quantity and price back, ask them to confirm,
+  and only then call {ORDER_PRODUCT_TOOL}. If that product was in the
+  cart, it leaves the cart; tell them what is still in the cart, if
+  anything. If it is unclear whether they mean this product or the whole
+  cart, ask.
+- After ordering, share the order number the tool returns.
 - Totals come only from the cart tools; never calculate them yourself.
 - Never ask for payment or card details; payment is handled outside
   the chat.

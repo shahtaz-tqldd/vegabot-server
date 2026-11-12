@@ -30,6 +30,7 @@ from chat.services.commerce import (
     active_cart_items,
     add_to_cart,
     cart_summary,
+    order_product,
     place_order,
     remove_from_cart,
 )
@@ -52,6 +53,7 @@ ADD_TO_CART_TOOL = "add_to_cart"
 REMOVE_FROM_CART_TOOL = "remove_from_cart"
 VIEW_CART_TOOL = "view_cart"
 PLACE_ORDER_TOOL = "place_order"
+ORDER_PRODUCT_TOOL = "order_product"
 MAX_DESCRIPTION_CHARS = 500
 
 
@@ -440,6 +442,32 @@ class CartTools:
             "currency": order.currency,
         }, event
 
+    def _order_product(self, source_id, quantity, refs_by_product):
+        product = Product.objects.filter(
+            pk=source_id, chatbot_id=self.chatbot_id, is_enabled=True,
+        ).first()
+        if product is None:
+            return {
+                "status": "not_found",
+                "message": "This product is no longer available.",
+            }, None
+        try:
+            order, was_in_cart = order_product(
+                session=self.session, product=product, quantity=quantity,
+            )
+        except CartError as exc:
+            return {"status": "error", "message": str(exc)}, None
+        event = activity_events.order_placed_event(self.session, order)
+        return {
+            "status": "ok",
+            "order_number": order.order_number,
+            "ordered": {"name": product.name, "quantity": order.item_count},
+            "total": _money(order.total_amount),
+            "currency": order.currency,
+            "removed_from_cart": was_in_cart,
+            "cart": self._cart_for_model(refs_by_product),
+        }, event
+
     async def _run(self, func, *args):
         result, event = await sync_to_async(func, thread_sensitive=True)(*args)
         await _publish(self.session, event)
@@ -498,12 +526,39 @@ class CartTools:
         explicitly confirmed the order."""
         return await self._run(self._place)
 
+    async def order_product(
+        self,
+        ref: str,
+        quantity: int,
+        tool_context: ToolContext,
+    ) -> dict:
+        """Order one product directly, without the cart. If the product is
+        in the cart, it is taken out of the cart (its cart line becomes the
+        order); the rest of the cart stays. Only call after you have read
+        the product, quantity and price back to the customer and they
+        explicitly confirmed.
+
+        Args:
+            ref: The product's `ref` from search_products (for example "K2").
+            quantity: How many to order (1 unless the customer said otherwise).
+        """
+        source_id = self._product_source_id(ref, tool_context)
+        if source_id is None:
+            return self._not_a_product(ref)
+        return await self._run(
+            self._order_product,
+            source_id,
+            quantity,
+            self._refs_by_product(tool_context),
+        )
+
     def get_tools(self) -> list:
         return [
             FunctionTool(func=self.add_to_cart),
             FunctionTool(func=self.remove_from_cart),
             FunctionTool(func=self.view_cart),
             FunctionTool(func=self.place_order),
+            FunctionTool(func=self.order_product),
         ]
 
 

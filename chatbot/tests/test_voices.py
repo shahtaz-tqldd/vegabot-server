@@ -206,7 +206,7 @@ class VoiceServiceTests(StorageMixin, TestCase):
     def test_selected_voice_defaults(self):
         self.assertEqual(
             selected_voice(self.chatbot),
-            selected_voice(self.chatbot) | {"name": "Puck", "is_default": True},
+            selected_voice(self.chatbot) | {"name": "Kore", "is_default": True},
         )
         select_voice(self.chatbot, voice_type="prebuilt", voice_name="kore")
         chosen = selected_voice(self.chatbot)

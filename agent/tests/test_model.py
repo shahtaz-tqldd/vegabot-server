@@ -153,7 +153,7 @@ class LiveModelVoiceTests(SimpleTestCase):
         self.assertEqual(model.model, "gemini-3.8-live")
         self.assertEqual(
             model.speech_config.voice_config.prebuilt_voice_config.voice_name,
-            "Puck",
+            "Kore",
         )
 
     @override_settings(GEMINI_LIVE_CHAT_MODEL="gemini-3.8-live")

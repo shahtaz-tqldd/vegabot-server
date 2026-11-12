@@ -218,7 +218,7 @@ def custom_voice_payload(voice, *, include_sample=False, storage=None):
 
 
 def default_voice_name():
-    return prebuilt_voice(GEMINI_LIVE_CHAT_VOICE) or prebuilt_voice("Puck")
+    return prebuilt_voice(GEMINI_LIVE_CHAT_VOICE) or prebuilt_voice("Kore")
 
 
 def selected_voice(chatbot):

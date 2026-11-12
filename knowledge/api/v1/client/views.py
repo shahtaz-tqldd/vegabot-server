@@ -801,7 +801,10 @@ class KnowledgeSearchView(GenericAPIView):
                     "chunk_index": result.chunk_index,
                     "content": result.content,
                     "metadata": result.metadata,
-                    "score": result.rrf_score,
+                    "chunk_indexes": result.chunk_indexes,
+                    "score": result.score,
+                    "rerank_score": result.rerank_score,
+                    "rrf_score": result.rrf_score,
                 }
                 for result in results
             ],

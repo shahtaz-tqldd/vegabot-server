@@ -73,7 +73,7 @@ Output `data[]`:
 
 Activity counts (also on session details):
 
-- `cart_item_count`: product lines the agent added to the cart, whatever happened to them later.
+- `cart_item_count`: product lines the agent added to the cart, whatever happened to them later. Products ordered directly without the cart are not counted.
 - `purchased_item_count`: product lines that were ordered.
 - `order_count`: orders placed.
 - `escalation_count`: human escalations raised.
@@ -111,12 +111,15 @@ Every product the agent added to the session's cart, oldest first. `status` is o
   "quantity": 2,
   "line_total": "178.00",
   "status": "ordered",
+  "added_to_cart": true,
   "created_at": "...",
   "updated_at": "..."
 }
 ```
 
-`status`: `in_cart` (still in the cart), `ordered` (part of `order`), `removed`. Adding a product that is already in the cart increases `quantity` instead of adding a line. Product details and `unit_price` are snapshots taken when the item was added. `product` is `null` when the product was later deleted.
+`status`: `in_cart` (still in the cart), `ordered` (part of `order`), `removed`. Adding a product that is already in the cart increases `quantity` instead of adding a line. Product details and `unit_price` are snapshots taken when the item was added.
+
+The agent can also order one product directly. If that product was in the cart, its cart line becomes the order line (`ordered`, with the ordered quantity and current price), so it leaves the cart; other cart items stay. Otherwise a new line is created already `ordered`, with `added_to_cart: false`. `product` is `null` when the product was later deleted.
 
 ### Session orders (purchases)
 
@@ -264,7 +267,7 @@ Only the session owner can send `mode.set` and `message.send`.
 | `chat.message.created` | Any new message in the session (user or agent, from any tab or REST) |
 | `chat.cart.item_added` | The agent added a product to the cart (or increased its quantity) |
 | `chat.cart.item_removed` | The agent removed a product from the cart |
-| `chat.order.placed` | The agent placed an order for the cart |
+| `chat.order.placed` | The agent placed an order, for the whole cart or for one product directly |
 | `chat.escalation.created` | The agent escalated the conversation to a human |
 | `notification.created` | Notification for a chatbot you own (e.g. training completed) |
 | `error` | A request was rejected; see [Errors](#errors) |
@@ -314,7 +317,7 @@ Payloads:
 
 { "type": "chat.cart.item_removed", "data": { "session_id": "uuid", "item": { ...cart item }, "cart": { ... }, "counts": { ... } } }
 
-{ "type": "chat.order.placed", "data": { "session_id": "uuid", "order": { ...order with items }, "counts": { ... } } }
+{ "type": "chat.order.placed", "data": { "session_id": "uuid", "order": { ...order with items }, "cart": { ...what is left in the cart }, "counts": { ... } } }
 
 { "type": "chat.escalation.created", "data": { "session_id": "uuid", "escalation": { ...escalation }, "counts": { ... } } }
 
@@ -329,7 +332,7 @@ Field notes:
 - `completed.message` is `null` only when a voice reply was interrupted before anything was said.
 - `interrupted: true` (audio): the user talked over the agent and the agent stopped. **Flush the audio playback queue.** The stored message holds what had been said.
 - `sources`: the documents/products/services cited by a text reply (empty in audio mode).
-- `chat.cart.*`, `chat.order.placed`, `chat.escalation.created` arrive **while** the agent is replying, as soon as the tool succeeds, in text and audio mode alike. Use them for toasts. `counts` holds the session's updated activity counts, and `cart` (cart events) holds the whole current cart, so you never need to compute either. An escalation for a question that is already open sends no second event.
+- `chat.cart.*`, `chat.order.placed`, `chat.escalation.created` arrive **while** the agent is replying, as soon as the tool succeeds, in text and audio mode alike. Use them for toasts. `counts` holds the session's updated activity counts, and `cart` (cart and order events) holds the whole current cart, so you never need to compute either. An escalation for a question that is already open sends no second event.
 
 ### Recommendation card
 

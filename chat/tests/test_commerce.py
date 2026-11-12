@@ -8,6 +8,8 @@ from chat.services import record_escalation
 from chat.services.commerce import (
     CartError,
     add_to_cart,
+    active_cart_items,
+    order_product,
     place_order,
     remove_from_cart,
     session_activity_counts,
@@ -97,6 +99,68 @@ class CartServiceTests(CommerceTestCase):
             set(order.items.values_list("status", flat=True)),
             {CartItemStatus.ORDERED},
         )
+
+    def test_order_product_not_in_cart(self):
+        add_to_cart(session=self.session, product=self.gadget)
+
+        order, was_in_cart = order_product(
+            session=self.session, product=self.widget, quantity=2,
+        )
+
+        self.assertFalse(was_in_cart)
+        self.assertEqual(order.total_amount, Decimal("19.98"))
+        self.assertEqual(order.item_count, 2)
+        line = order.items.get()
+        self.assertEqual(line.product, self.widget)
+        self.assertEqual(line.status, CartItemStatus.ORDERED)
+        self.assertFalse(line.added_to_cart)
+        # The cart is untouched.
+        self.assertEqual(
+            [item.product for item in active_cart_items(self.session)],
+            [self.gadget],
+        )
+        counts = session_activity_counts(self.session.pk)
+        self.assertEqual(counts["cart_item_count"], 1)
+        self.assertEqual(counts["purchased_item_count"], 1)
+
+    def test_order_product_in_cart_removes_it_from_cart(self):
+        cart_line = add_to_cart(session=self.session, product=self.widget, quantity=3)
+        add_to_cart(session=self.session, product=self.gadget)
+        self.widget.price = Decimal("8.00")
+        self.widget.save()
+
+        order, was_in_cart = order_product(
+            session=self.session, product=self.widget, quantity=1,
+        )
+
+        self.assertTrue(was_in_cart)
+        cart_line.refresh_from_db()
+        # The cart line itself became the order line, at today's price.
+        self.assertEqual(cart_line.order, order)
+        self.assertEqual(cart_line.status, CartItemStatus.ORDERED)
+        self.assertEqual(cart_line.quantity, 1)
+        self.assertEqual(cart_line.unit_price, Decimal("8.00"))
+        self.assertTrue(cart_line.added_to_cart)
+        self.assertEqual(order.total_amount, Decimal("8.00"))
+        self.assertEqual(
+            [item.product for item in active_cart_items(self.session)],
+            [self.gadget],
+        )
+        # Ordering the rest of the cart no longer includes the widget.
+        rest = place_order(session=self.session)
+        self.assertEqual(rest.total_amount, Decimal("20.00"))
+
+    def test_order_product_rejects_invalid_requests(self):
+        for quantity in (0, "two", 100):
+            with self.assertRaises(CartError):
+                order_product(
+                    session=self.session, product=self.widget, quantity=quantity,
+                )
+        with self.assertRaises(CartError):
+            order_product(
+                session=self.session, product=self.create_product("Free", None),
+            )
+        self.assertFalse(self.session.orders.exists())
 
     def test_session_activity_counts(self):
         self.fill_session()
